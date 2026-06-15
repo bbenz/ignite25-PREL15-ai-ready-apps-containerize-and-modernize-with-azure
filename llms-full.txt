@@ -1,0 +1,2954 @@
+# Ignite AI-Ready Apps Lab
+
+> A guided lab for running AI-ready apps on Azure Container Apps with GPUs.
+
+- Problem it solves: Standing up GPU-backed AI workloads and agents without weeks of setup.
+- Value it creates: Attendees ship containerized AI apps and agents in a single session.
+- How it works: Step-by-step segments: GPU ACA, Ollama, LangChain, MCP, and a Goose agent.
+- Pricing: Azure pay-as-you-go (lab uses standard ACA + GPU pricing).
+
+---
+
+## Segment 2 - Explore Ollama on Azure Container Apps (30 minutes)
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment2-ollama
+
+# Segment 2 - Explore Ollama on Azure Container Apps (30 minutes)
+
+> Reuse the GPU-enabled Container App from Segment 0/1 (`my-gpu-demo-app`) so you don't provision an additional GPU revision. These steps assume that app is still deployed in the same resource group and region.
+
+---
+
+## Overview
+
+In this segment you will:
+
+- Reconfigure the existing Container App to run the official Ollama container image with GPU access
+- Enable ingress on port `11434` for remote API calls
+- Pull multiple models (SmolLM2 1.7B, DeepSeek-R1 14B, GPT-OSS 20B) from inside the container
+- Compare model quality with a curated prompt pack
+- Exercise Ollama's HTTP API using `curl`, `wget`, and PowerShell commands
+
+Estimated duration: **30 minutes**
+
+---
+
+## Prerequisites
+
+- Segment 0 & Segment 1 completed (Azure Container Apps environment + GPU quota ready)
+- Existing Container App `my-gpu-demo-app` deployed in `my-gpu-demo-group`
+- Azure subscription with GPU workload profile enabled (already set up in the Skillable lab)
+
+---
+
+## Task 1 - Reconfigure the GPU App to Run Ollama
+
+**Goal:** Swap the container image in `my-gpu-demo-app` to `ollama/ollama`, expose port `11434`, and keep GPU acceleration enabled.
+
+1. **Open the Container App in Azure Portal**
+
+    - Go to `https://portal.azure.com` and navigate to **Resource groups > my-gpu-demo-group > my-gpu-demo-app**.
+
+1. **Verify your app is on a T4 GPU workload profile**
+
+    The following steps demonstrate how you can switch between workload profiles (different compute types) in Azure Container Apps.
+
+    - In the navigation blade on the left, select **Overview**. In the **Overview**, click on the **Properties** tab.
+    - Confirm the **Workload profile** is set to `t4` with GPU enabled.
+    - Select **Change** for the workload profile. You should see that the GPU box is selected, and the GPU type is `Consumption-GPU-NC8as-T4`. Select **Discard**.
+
+1. **Update the container image**
+
+    - In the navigation blade on the left, select **Application > Containers**.
+    - Update **Registry login server** to `docker.io`.
+    - Update **Image and tag** to `ollama/ollama:latest`.
+    - Ensure that the **CPU cores** are set to `8` and **Memory** is set to `56`.
+
+1. **Set environment variables**
+
+    - Select the **Environment variables** tab.
+    - Select **Add** and provide the following environment variables:
+
+        - Set **Name** to `OLLAMA_HOST`, choose **Manual entry**, and enter the value `0.0.0.0`.
+
+    - Click **Save as a new revision**. 
+    - This will take a few moments to deploy the new revision. Select the notification bell in the top right to see the status of the ongoing deployment.
+
+1. **Change the port the app receives traffic on**
+
+    - Once the revision has been deployed, select **Networking > Ingress** in the navigation blade on the left.
+    - In the **Ingress** section, ensure the checkbox for **Ingress** is selected.
+    - Set **Ingress traffic** to **Accepting traffic from anywhere**.
+    - Change the **Target port** to `11434`.
+    - Select **Save**.
+
+1. **Verify the application is running**
+
+    Once your application's ingress has been updated, verify the application is running.
+
+    - Select **Application > Revisions and replicas**.
+    - Under **Running status**, the latest revision you deployed should show as `Activating`. Once it shows as **Running**, your application is ready. If after waiting a few minutes it is still not running, refresh the page.
+
+---
+
+## Task 2 - Pull Ollama Models from the Portal Console
+
+**Goal:** Shell into the running container and pre-load the models you'll test.
+
+1. **Open the container console**
+
+    - In the Container App blade, select **Monitoring > Console**.
+    - If you select the field for **Based on revision**, you should see the latest revision selected. Choose the newest revision and replica (e.g., `gpuquickstart--0000004`).
+    - For **Choose start up command**, select `/bin/bash` and select **Connect** to launch a `/bin/bash` session.
+
+1. **Verify Ollama is running**
+
+Type the following commands into the console:
+
+```bash
+  ps aux | grep ollama
+  ollama --version
+
+```
+You should get a response like this: 
+
+  **ollama --version is x.xx.xx**
+
+
+
+1. **Pull the requested models**
+
+Type the following commands into the console:
+
+```bash
+ ollama pull smollm2:1.7b
+ ollama pull deepseek-r1:14b
+ ollama pull gpt-oss:20b
+
+ ```
+
+ **Note** Each download can take several minutes. Keep the console open until all pulls complete.
+
+1. **List installed models**
+
+Type the following commands into the console:
+
+```bash
+ ollama list
+```
+
+You should see all three models with the **latest** digest.
+
+---
+
+## Task 3 - Compare Model Quality with Prompt Pack
+
+Use the console  to run these prompts against each model. The goal is to spot differences across the models.
+
+ ```bash
+ ollama run smollm2:1.7b "Explain the concept of vector databases to a new data engineer in under three sentences."
+ ```
+ ```bash
+ ollama run deepseek-r1:14b "Write a Python function that generates a haiku using a small in-memory word list."
+ ```
+ ```bash
+ ollama run gpt-oss:20b "Reason through this riddle: You see me once in a year, twice in a week, and never in a day. What am I?"`
+```
+
+Pay attention to latency, depth of reasoning, and hallucination risk for each model. Experiment with your own prompts as well!
+| Prompt | What to Look For |
+| --- | --- |
+| Explain the concept of vector databases to a new data engineer in under three sentences. | Clarity + factual accuracy |
+| Write a Python function that generates a haiku using a small in-memory word list. | Code correctness + creativity |
+| Reason through this riddle: You see me once in a year, twice in a week, and never in a day. What am I? | Chain-of-thought reasoning |
+
+---
+
+## Task 4 - Explore the Ollama REST API
+
+**Goal:** Interact with the Ollama server remotely using typical dev tooling.
+
+### 4.1 Set the container app endpoint as an environment variable
+
+1. **Get your container app URL**
+   - In the Azure Portal, select **Overview** in the left-hand navigation blade.
+   - Use the copy icon to the right of the **Application URL** to copy the Application URL to the clipboard.
+
+2. **Set the environment variable**
+   - Open VS Code on the lab host.
+   - Open the WSL terminal.
+   - Run the following command, replacing `<Your Container App URL>` with the URL you copied:
+
+    ```bash
+    export OLLAMA_URL="<Your Container App URL>"
+    ```
+
+3. **Verify the variable is set**
+
+    ```bash
+    echo $OLLAMA_URL
+    ```
+
+   You should see your container app URL displayed.
+
+### 4.2 List installed models
+
+Run the following command in the WSL terminal:
+
+```bash
+curl -s $OLLAMA_URL/api/tags | jq
+```
+This will display all models currently available on your Ollama server.
+
+### 4.3 Show model metadata (pick any deployed model)
+
+- **Using curl:**
+
+  ```bash
+  curl $OLLAMA_URL/api/show \
+  -H "Content-Type: application/json" \
+  -d '{"model":"smollm2:1.7b"}'
+  ```
+
+Both commands will return detailed metadata about the specified model, including its parameters, architecture, and system requirements.
+
+### 4.4 Generate a streamed response
+
+Run the following command to test text generation using curl:
+
+- **Using curl:**
+
+  ```bash
+  curl $OLLAMA_URL/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smollm2:1.7b",
+    "prompt": "Explain the concept of vector databases."
+  }'
+  ```
+
+  You'll see the response stream in real-time as the model generates text.
+
+### 4.5 Return just the response
+
+- By running this command without streaming and parsing the JSON response, you can extract the generated text:
+
+  ```bash
+    curl $OLLAMA_URL/api/generate \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "smollm2:1.7b",
+        "prompt": "Explain the concept of vector databases.",
+        "stream": false
+      }' | jq -r '.response'
+  ```
+
+> Tip: For production deployments, you can deploy your inferencing server applications (in this case the Ollama app) an environment integrated with your own virtual networks or behind private endpoints. You can also add managed identity rules for who can access the app. This keeps model traffic on trusted networks and ensures only authorized callers can reach sensitive data.
+
+---
+
+## Persist models and reduce cold starts in production
+
+Serverless scaling in Azure Container Apps are great as they can autoscale into zero. However, the storage isn't persisted which means you have to redownload models after each scale-to-zero event which can cause significant coldstart. Below, are patterns we see customers adopt to improve their cold start times in production. These are also our recommendations.
+
+1. Add an [Azure Files volume mount](https://learn.microsoft.com/azure/container-apps/storage-mounts-azure-files?tabs=bash) to your Azure Container App - By adding a volume mount, your models can be stored persistently, preventing the need to redownload them after scaling to zero. Instead, models are loaded from the mounted volume, significantly reducing cold start times. For an Ollama contianer image, you would mount the volume at `/var/lib/ollama`.
+1. Customers also will set cron scalars and other scalars to ensure that the GPUs are pre-warmed prior to expected traffic spikes.
+1. Use Azure Container Registry artifact streaming to enable your container to startup faster by streaming layers on demand.
+1. Set a minimum replica count during business hours - By configuring your Container App to maintain at least one running replica during peak usage times, you can ensure that the application is always ready to handle requests without the latency associated with cold starts.
+
+---
+
+## Wrap-Up
+
+- ✅ Ollama now runs inside your GPU-backed Container App with external ingress
+- ✅ Required models are pre-pulled and ready for inference testing
+- ✅ Prompt pack highlights capability differences across 1.7B, 14B, and 20B parameter models
+- ✅ You called the Ollama REST API using multiple tools
+
+## Additional resources
+
+- [Gpt-oss on Azure Container Apps](https://techcommunity.microsoft.com/blog/appsonazureblog/open-ais-gpt-oss-models-on-azure-container-apps-serverless-gpus/4440836)
+- [Deepseek-r1 on Azure Container Apps](https://techcommunity.microsoft.com/blog/appsonazureblog/deepseek-r1-on-azure-container-apps-serverless-gpus/4371463)
+
+---
+
+## Segment 3 - LangChain + Azure Container Apps Dynamic Sessions
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment3-langchain_aca_lab
+
+# Segment 3 - LangChain + Azure Container Apps Dynamic Sessions
+
+## Title
+Build a LangChain Agent with Azure Container Apps Dynamic Sessions (Code Interpreter)
+
+---
+
+## Lab Overview
+
+In this part, you will:
+- Use a pre-provisioned Azure Container Apps **Dynamic Session Pool** for Python code execution in a code interpreter.
+- Connect the pool to a **LangChain agent** via the **langchain-azure-dynamic-sessions** package.
+- Expose a **FastAPI web API** with endpoints for natural language queries and file analysis.
+- Validate with tasks: math calculation, plotting, and CSV summarization.
+
+### What is LangChain?
+
+**LangChain** is a powerful framework for building applications powered by large language models (LLMs). It provides a standardized interface for connecting LLMs with external tools, data sources, and APIs. In this lab, LangChain acts as the orchestration layer that:
+- Connects Azure OpenAI's GPT models with the Azure Container Apps Dynamic Sessions code execution environment
+- Manages the conversation flow between user queries and code interpreters
+- Handles tool selection and parameter passing automatically
+- Provides built-in retry logic, error handling, and response parsing
+
+> [!Note] LangChain is the focus for this section of the lab, but the same patterns apply to other agents. Microsoft's newly released [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/overview/agent-framework-overview) is a great alternative, and you'll experiment with [Goose](https://github.com/block/goose) later in the lab as well.
+
+### What are Code Interpreters?
+
+**Code interpreters** are secure, isolated environments that allow AI agents to write and execute code dynamically in response to user queries. Unlike traditional chatbots that can only generate text responses, code interpreters enable AI systems to perform actual computations, analyze data, create visualizations, and manipulate files in real-time. This capability transforms AI agents from conversational tools into powerful problem-solving assistants that can handle complex mathematical calculations, data analysis tasks, and generate visual outputs like charts and graphs. Azure Container Apps Dynamic Sessions provides enterprise-grade code interpreter functionality with built-in security, scalability, and integration with popular AI frameworks like LangChain.
+
+By using LangChain with code interpreters, you can build sophisticated AI agents that reason about when to execute code, what code to write, and how to interpret the results-all with minimal custom code.
+
+---
+
+## Estimated Duration
+45 minutes
+
+---
+
+## Lab Tasks
+
+### Task 1 - Authenticate with Azure
+
+---
+
+#### Step 1: Sign in to Azure
+
+Open VS Code and authenticate with your Azure subscription using the Azure CLI.  Use the wsl terminal and type:
+
+```bash
+az login
+```
+- Follow the instructions for signing in.  
+- If credentials are requested, open the **Resources** tab above and use the credentials from the **Azure Portal** section.
+
+---
+
+#### Step 2: Verify your Azure subscription
+
+Confirm you're using the correct Azure subscription for this lab.
+
+```bash
+az account show
+```
+
+**Expected output:** You should see your subscription ID, name, and tenant information. Verify this matches the subscription provided for the lab environment.
+
+---
+
+### Task 2 - Set Up the Application Environment
+
+**Description:** In this task, you'll use a pre-provisioned sample application directory and Python virtual environment, with pre-installed dependencies. 
+
+
+---
+
+#### Step 3: Navigate to the sample application directory
+
+Change to the directory containing the LangChain Python web API sample code.
+
+```bash
+cd container-apps-dynamic-sessions-samples/langchain-python-webapi
+```
+
+**What this does:** The sample code has been pre-cloned into your lab environment at this location. This directory contains:
+- **main.py** - The FastAPI application with LangChain integration
+- **.env.sample** - Sample configuration file with Azure resource endpoints and credentials
+- **requirements.txt** - Python package dependencies
+- Additional helper modules and documentation
+
+---
+
+---
+
+### Task 3 - Creating and populating the .env file
+
+**Description:** Before running the application, let's understand the key resources that make it work.
+
+---
+
+#### Understanding the **.env** file
+
+The **.env** file contains all the configuration settings needed to connect your application to Azure services. It stores:
+
+- **POOL_MANAGEMENT_ENDPOINT** - The management endpoint for your Azure Container Apps Dynamic Session Pool
+- **AZURE_OPENAI_ENDPOINT** - The endpoint URL for your Azure OpenAI service
+- **AZURE_OPENAI_DEPLOYMENT** - The name of your deployed GPT model (e.g., **gpt-4o-mini**)
+- **AZURE_OPENAI_API_KEY** - The API key to use for Azure OpenAI calls
+
+**Why this is valuable:** 
+- Separates configuration from code, making it easy to switch between development, staging, and production environments
+- Keeps sensitive information (endpoints and identifiers) out of source code
+- Follows the "twelve-factor app" methodology for cloud-native applications
+- The **.env** file has been pre-configured with your lab environment's resource endpoints
+
+**Security note:** In production environments, you would use Azure Key Vault or managed identities instead of storing credentials in files.
+
+---
+
+#### Populating the **.env** file
+
+Create a new **.env** file using the VS Code wsl terminal:
+
+ ```bash
+ cd container-apps-dynamic-sessions-samples/langchain-python-webapi
+ cp .env.sample .env
+```
+
+And open the new .env file in the explorer on the left.
+
+1. If you are not already logged in to Azure, **Open a browser and sign in:**
+   
+   - Open your browser and go to the Azure Portal: `https://portal.azure.com`
+   - Follow the instructions for signing in.  
+   - For credentials, Use the **User Name** and **TAP** from the **Azure Portal** section of the **Resources** tab above.
+
+Loocate and copy/paste the following variables into your .env file:
+
+2. **Pool Management Endpoint** 
+- In the Azure Portal, search for `Container App Session Pool` and click on **Container App Session Pool** .  Open the Container App Session Pool resource displayed, then copy the Pool Management Endpoint displayed on the top right and paste it into the .env file.  
+
+```bash
+POOL_MANAGEMENT_ENDPOINT=<Pool Management Endpoint>
+```
+
+
+3. **OpenAI Endpoint and Key**
+- In the Azure Portal, search for `Azure OpenAI` and click on **Azure OpenAI** .  Open the Azure OpenAI resource displayed. On the left, go to **Resource Management > Keys and Endpoint**  and copy/paste the following values:
+
+```bash
+AZURE_OPENAI_ENDPOINT=<Endpoint>
+AZURE_OPENAI_API_KEY=<KEY 1>  
+```
+4. **Model Name**
+
+-From Keys and Endpoint, click on **Overview** on the top left then click on **Go to Azure AI Foundry Portal** towards the top on the left.   
+-If you are asked to log in again, follow the same steps from the previous login process.  
+-Once in the foundry, click on **Deployments** on the left, and copy and paste the **Model Name** into the .env file.
+
+```bash
+AZURE_OPENAI_DEPLOYMENT=<Model Endpoint>
+```
+
+- Once complete, you should have four values in your new .env file.  
+- save the .env file
+
+```bash
+POOL_MANAGEMENT_ENDPOINT=<Pool Management Endpoint>
+AZURE_OPENAI_ENDPOINT=<Endpoint>
+AZURE_OPENAI_API_KEY=<KEY 1>  
+AZURE_OPENAI_DEPLOYMENT=<Model Endpoint>
+```
+**Security note:** In production environments, you would use Azure Key Vault or managed identities instead of storing credentials in files.
+
+---
+
+#### Step 4: Review the Python virtual environment
+
+An isolated Python environment has already been created and populated with application dependencies.
+
+**What this is:** A new directory called **venv** contains a complete Python environment. This keeps the lab dependencies separate from your system Python installation, preventing version conflicts.
+
+**Why this is valuable:** Virtual environments are a Python best practice that ensure reproducible builds and prevent dependency conflicts between different projects.
+
+---
+
+#### Step 5: Activate the virtual environment
+
+Activate the virtual environment so that Python commands use the isolated environment.
+
+Make sure that you are in the application directory:
+
+**ACASamples/container-apps-dynamic-sessions-samples/langchain-python-webapi**
+
+```bash
+source venv/bin/activate
+```
+
+**What this does:** Modifies your shell's PATH to prioritize the virtual environment's Python interpreter and packages. You'll see **(venv)** appear at the beginning of your command prompt.
+
+**Note:** You'll need to run this command again if you open a new terminal session.
+
+---
+
+#### Step 6: Review Installed application dependencies
+
+the command **pip install -r requirements.txt** preinstalled all required Python packages from the requirements file.
+
+**What this did:** Installs the following key packages:
+- **fastapi** - Modern web framework for building APIs
+- **uvicorn** - ASGI server for running FastAPI applications
+- **langchain** & **langchain-openai** - LangChain framework with Azure OpenAI integration
+- **langchain-azure-dynamic-sessions** - Integration with Azure Container Apps Dynamic Sessions
+- **pydantic** - Data validation and settings management
+- **python-multipart** - File upload support for FastAPI
+
+**Note:** Dependencies are preinstalled, as it typically takes 10 minutes or more to download and install all dependencies.
+
+
+### Task 4 - Run the Application
+
+**Description:** In this task, you'll start the FastAPI application and prepare to test its endpoints.
+
+---
+
+#### Understanding **main.py**
+
+The **main.py** file is the heart of your application. It:
+
+1. **Imports and initializes LangChain components:**
+   - Creates an Azure OpenAI chat model instance
+   - Initializes the Azure Dynamic Sessions code execution tool
+   - Configures a LangChain agent with the code execution capability
+
+2. **Defines FastAPI endpoints:**
+   - **/chat** - Accepts natural language queries and routes them to the LangChain agent
+   - **/summarize-csv** - Handles CSV file uploads and uses the agent to analyze the data
+   - **/health** - Provides a health check endpoint for monitoring
+
+3. **Manages the agent execution flow:**
+   - Receives user input
+   - Determines if code execution is needed
+   - Generates Python code dynamically based on the query
+   - Executes code in the secure Azure Container Apps Dynamic Sessions environment
+   - Returns results back to the user
+
+**Why this is valuable:**
+- Demonstrates how to build production-ready AI agents with proper error handling
+- Shows best practices for integrating Azure services with LangChain
+- Provides a reusable pattern for building code-execution-powered AI applications
+- Exposes a REST API that can be consumed by web frontends, mobile apps, or other services
+
+---
+
+#### Step 7: Start the development server
+
+Launch the FastAPI application with auto-reload enabled.
+
+```bash
+uvicorn main:app --reload
+```
+
+Once you see this message, the application is running:
+
+**INFO:     Application startup complete.**
+
+**What this does:**
+- Starts the FastAPI application defined in **main.py**
+- The **--reload** flag watches for file changes and automatically restarts the server
+- By default, the server runs on **http://127.0.0.1:8000**
+
+**Expected output:** You should see startup messages indicating the server is running, including:
+```bash
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process
+INFO:     Started server process
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+**Note:** Keep this terminal window open. The application will continue running and display request logs as you test the endpoints.
+
+---
+
+### Task 5 - Validate the API
+
+**Description:** This task verifies that your LangChain agent can successfully execute Python code in the Azure Dynamic Sessions pool. You'll test three scenarios: mathematical calculations, data visualization, and CSV file analysis.
+
+#### 1. **Test in your browser:**
+   
+- Navigate to `http://localhost:8000` to access the automatically generated FastAPI interactive documentation, where you can test the endpoints by expanding and using the web interface.
+
+
+#### 2. **Test using curl:**
+
+- In VS Code, open a new wsl terminal with the **+** symbol above the existing terminal, and paste in the following curl commands 
+- After executing curl commands, check back on the original wsl terminal to see the execution and response from the application
+
+1. **Math calculation test:**
+   
+   Test the agent's ability to execute Python code for mathematical operations. This query asks the agent to use Python to calculate the mean of a list of numbers. The agent should recognize it needs to use the code execution tool and return the computed result.
+   ```bash
+   curl 'http://localhost:8000/chat?message=Calculate%20the%20mean%20of%201,2,3,100%20using%20Python'
+   ```
+   
+   Expected result: The agent should return approximately 26.5 as the mean value.
+
+2. **Data visualization test:**
+   
+   Test the agent's ability to generate plots and analyze visualizations. This query requires the agent to use matplotlib to create a plot and analyze the results.
+   ```bash
+   curl 'http://localhost:8000/chat?message=Plot%20sin(x)%20from%20-1%20to%201%20and%20report%20the%20peak%20value'
+   ```
+   
+   Expected result: Plot sin(x) from -1 to 1 and calculate that the peak value is approximately 0.8415.".
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+- **Verify prerequisites**
+
+- Active Azure subscription  
+- Azure CLI with Container Apps extension
+- Check to see if the extension is installed:
+(`az extension show --name containerapp`)  
+- If its not installed, install it via this command:
+(`az extension add --name containerapp --upgrade --allow-preview true -y`)  
+- Python 3.10+ and Git installed locally  - type `python3`
+- Azure OpenAI resource with a deployed model (e.g., gpt-4o-mini)
+
+- **Sample source code is not located at documents/ACASamples**
+  - **Cause:** For some reason the sample code was not automatically cloned into your local lab environment 
+  - **Solution:** Clone the repo manually
+        
+        ```bash
+        git clone https://github.com/Azure-Samples/container-apps-dynamic-sessions-samples
+        ```
+
+- **403 Unauthorized / Permission Denied**
+  - **Cause:** Your user identity lacks the required permissions to execute code in the session pool or access Azure OpenAI.
+  - **Solution:** Ensure you've assigned the following roles as shown in Task 1:
+    - `Azure ContainerApps Session Executor` (step 7)
+    - `Contributor` (step 8)
+    - `Cognitive Services OpenAI User` (step 10)
+  - It may take a few minutes for role assignments to propagate.
+  - **Verification:** Run these commands to confirm your role assignments:
+    ```bash
+    az role assignment list --scope $POOL_ID
+    az role assignment list --scope $OPENAI_ID
+    ```
+
+- **Missing CLI command / "containerapp: command not found"**
+  - **Cause:** The Azure Container Apps CLI extension is not installed or is outdated.
+  - **Solution:** Install or upgrade the extension:
+    ```bash
+    az extension remove --name containerapp
+    az extension add --name containerapp --upgrade --allow-preview true -y
+    ```
+
+- **Missing or invalid pool endpoint**
+  - **Cause:** The pool management endpoint was not properly retrieved or saved.
+  - **Solution:** Re-run the session pool show command:
+    ```bash
+    az containerapp sessionpool show --name $POOL --resource-group $RG \
+      --query 'properties.poolManagementEndpoint' -o tsv
+    ```
+
+- **Connection timeout or "Failed to connect to session pool"**
+  - **Cause:** Network connectivity issues or the session pool hasn't finished provisioning.
+  - **Solution:** 
+    1. Verify the pool status: `az containerapp sessionpool show --name $POOL --resource-group $RG`
+    2. Check that `provisioningState` is `Succeeded`
+    3. Wait a few minutes if the pool was just created
+
+- **"No module named 'langchain_azure_dynamic_sessions'"**
+  - **Cause:** The required Python package is not installed or the virtual environment is not activated.
+  - **Solution:** 
+    1. Activate your virtual environment: `source .venv/bin/activate`
+    2. Reinstall dependencies: `pip install -U langchain-azure-dynamic-sessions`
+
+- **Azure OpenAI API errors**
+  - **Cause:** Invalid or missing .env file configuration, or the deployment doesn't exist.
+  - **Solution:** Verify your environment variables are set correctly in the .env file:
+    ```bash
+    POOL_MANAGEMENT_ENDPOINT=<Pool Management Endpoint>
+    AZURE_OPENAI_ENDPOINT=<Endpoint>
+    AZURE_OPENAI_API_KEY=<KEY 1>  
+    AZURE_OPENAI_DEPLOYMENT=<Model Endpoint>
+    
+    ```
+  - Verify your deployment exists:
+    ```bash
+    az cognitiveservices account deployment list \
+      --name <YOUR_OPENAI_ACCOUNT_NAME> \
+      --resource-group $RG \
+      --query "[].name" -o tsv
+    ```
+  - Ensure you have the `Cognitive Services OpenAI User` role assigned (Task 1, step 10).
+
+
+---  
+
+## Bonus Exercise: Complete End-to-End Setup at Home
+
+> **Note:** This lab uses pre-provisioned resources to save time during the session. Use this section to recreate the complete environment from scratch on your own Azure subscription.
+
+This bonus exercise walks you through the complete infrastructure setup, including creating the resource group, session pool, Azure OpenAI service, and all necessary role assignments. This is ideal for practicing at home or deploying to your own environment.
+
+---
+
+### Part 1: Infrastructure Setup
+
+#### Step 1: Authenticate and Set Environment Variables
+
+Sign in to Azure and configure your environment variables for the deployment.
+
+```bash
+# Sign in to Azure
+az login
+
+# Set environment variables
+export SUB=$(az account show --query id -o tsv | tr -d '\r')
+export RG="aca-langchain-rg-${USER}-$RANDOM"
+export LOC=westus2
+
+echo "Subscription: $SUB"
+echo "Resource Group: $RG"
+echo "Location: $LOC"
+```
+
+#### Step 2: Create Resource Group
+
+Create a resource group to contain all lab resources.
+
+```bash
+az group create -n $RG -l $LOC
+```
+
+---
+
+### Part 2: Dynamic Session Pool Setup
+
+#### Step 3: Create Azure Container Apps Session Pool
+
+Create a Dynamic Session Pool with Python runtime for secure code execution.
+
+```bash
+export POOL="aca-langchain-py-${USER}-$RANDOM"
+
+az containerapp sessionpool create \
+  --name $POOL \
+  --resource-group $RG \
+  --location $LOC \
+  --container-type PythonLTS \
+  --max-sessions 50 \
+  --cooldown-period 300 \
+  --network-status EgressDisabled
+
+echo "Session Pool created: $POOL"
+```
+
+**What this does:**
+- Creates an isolated Python environment with pre-installed data science libraries (pandas, matplotlib, numpy)
+- `--max-sessions 50`: Supports up to 50 concurrent code execution sessions
+- `--cooldown-period 300`: Sessions remain available for 5 minutes after use
+- `--network-status EgressDisabled`: Blocks outbound internet access for security
+
+#### Step 4: Retrieve Session Pool Endpoints
+
+Get the pool management endpoint and resource ID needed for configuration and role assignments.
+
+```bash
+# Get pool management endpoint
+export POOL_MGMT=$(az containerapp sessionpool show \
+  --name $POOL --resource-group $RG \
+  --query 'properties.poolManagementEndpoint' -o tsv | tr -d '\r')
+echo "Pool Management Endpoint: $POOL_MGMT"
+
+# Get pool resource ID
+export POOL_ID=$(az containerapp sessionpool show \
+  --name $POOL --resource-group $RG \
+  --query id --output tsv | tr -d '\r')
+echo "Pool Resource ID: $POOL_ID"
+```
+
+---
+
+### Part 3: User Identity and Permissions
+
+#### Step 5: Retrieve User Identity
+
+Get your Azure AD user information for role assignments.
+
+```bash
+export USER_PRINCIPAL_NAME=$(az ad signed-in-user show --query userPrincipalName -o tsv | tr -d '\r')
+export USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv | tr -d '\r')
+
+echo "User Principal Name: $USER_PRINCIPAL_NAME"
+echo "Object ID: $USER_OBJECT_ID"
+```
+
+**Note:** Your User Principal Name will look like `user@domain.com` or `user_domain.com#EXT#@tenant.onmicrosoft.com` for external users.
+
+#### Step 6: Assign Session Pool Permissions
+
+Grant yourself permissions to execute code in the session pool.
+
+```bash
+# Assign Session Executor role
+az role assignment create \
+  --role "Azure Container Apps Session Executor" \
+  --assignee "$USER_PRINCIPAL_NAME" \
+  --scope $POOL_ID
+
+# Assign Contributor role for pool management
+az role assignment create \
+  --role "Contributor" \
+  --assignee "$USER_PRINCIPAL_NAME" \
+  --scope $POOL_ID
+
+echo "✓ Session pool permissions assigned"
+```
+
+**Roles explained:**
+- **Azure Container Apps Session Executor**: Allows creating and executing code in sessions
+- **Contributor**: Allows managing the session pool resource
+
+---
+
+### Part 4: Azure OpenAI Setup
+
+#### Step 7: Create Azure OpenAI Resource
+
+Provision an Azure OpenAI account in your resource group.
+
+```bash
+export OPENAI_NAME="openai-aca-${USER}-$RANDOM"
+export OPENAI_DOMAIN="openai-aca-${USER}-$RANDOM"
+
+az cognitiveservices account create \
+  --name $OPENAI_NAME \
+  --resource-group $RG \
+  --location $LOC \
+  --kind OpenAI \
+  --sku s0 \
+  --custom-domain $OPENAI_DOMAIN
+
+echo "✓ Azure OpenAI account created: $OPENAI_NAME"
+```
+
+**Note:** The custom domain must be globally unique, so we append a random number.
+
+#### Step 8: Deploy GPT-3.5 Turbo Model
+
+Deploy the language model that will power your LangChain agent.
+
+```bash
+export DEPLOYMENT_NAME="gpt-35-turbo"
+
+az cognitiveservices account deployment create \
+  --resource-group $RG \
+  --name $OPENAI_NAME \
+  --deployment-name $DEPLOYMENT_NAME \
+  --model-name gpt-35-turbo \
+  --model-version "1106" \
+  --model-format OpenAI \
+  --sku-capacity "30" \
+  --sku-name "Standard"
+
+echo "✓ Model deployment created: $DEPLOYMENT_NAME"
+```
+
+**Model details:**
+- **Model**: GPT-3.5 Turbo (version 1106)
+- **Capacity**: 30K tokens per minute (TPM)
+- **SKU**: Standard (pay-as-you-go)
+
+#### Step 9: Retrieve Azure OpenAI Configuration
+
+Get the endpoint and resource ID for connecting your application.
+
+```bash
+# Get OpenAI endpoint
+export OPENAI_ENDPOINT=$(az cognitiveservices account show \
+  --name $OPENAI_NAME \
+  --resource-group $RG \
+  --query properties.endpoint --output tsv | tr -d '\r')
+echo "OpenAI Endpoint: $OPENAI_ENDPOINT"
+
+# Get OpenAI resource ID
+export OPENAI_ID=$(az cognitiveservices account show \
+  --name $OPENAI_NAME \
+  --resource-group $RG \
+  --query id --output tsv | tr -d '\r')
+echo "OpenAI Resource ID: $OPENAI_ID"
+```
+
+The endpoint will be in the format: `https://<your-custom-domain>.openai.azure.com/`
+
+#### Step 10: Assign Azure OpenAI Permissions
+
+Grant yourself permission to call the Azure OpenAI API.
+
+```bash
+az role assignment create \
+  --role "Cognitive Services OpenAI User" \
+  --assignee "$USER_PRINCIPAL_NAME" \
+  --scope $OPENAI_ID
+
+echo "✓ Azure OpenAI permissions assigned"
+```
+
+**Why this is needed:** This role allows your identity to make API calls to Azure OpenAI without requiring API keys (uses Azure AD authentication instead).
+
+---
+
+### Part 5: Application Development
+
+#### Step 11: Clone Sample Repository
+
+Get reference implementations and examples from the official Microsoft samples.
+
+```bash
+cd ~/Documents
+git clone https://github.com/Azure-Samples/container-apps-dynamic-sessions-samples
+cd container-apps-dynamic-sessions-samples
+
+echo "✓ Sample repository cloned"
+```
+
+**Repository contents:**
+- Python FastAPI examples
+- LangChain integration patterns
+- Code execution samples
+- MCP server examples
+
+#### Step 12: Create Application Project
+
+Set up your application development environment.
+
+```bash
+mkdir ~/Documents/aca-langchain-lab && cd $_
+python3 -m venv .venv
+source .venv/bin/activate
+
+echo "✓ Project environment created"
+```
+
+#### Step 13: Install Dependencies
+
+Install all required Python packages for the application.
+
+```bash
+pip install -U \
+  fastapi \
+  uvicorn \
+  langchain \
+  langchain-openai \
+  langchain-azure-dynamic-sessions \
+  pydantic \
+  python-multipart
+
+echo "✓ Dependencies installed"
+```
+
+**Packages installed:**
+- **fastapi** & **uvicorn**: Web framework and ASGI server
+- **langchain** & **langchain-openai**: LangChain framework with Azure OpenAI integration
+- **langchain-azure-dynamic-sessions**: Azure Container Apps Dynamic Sessions integration
+- **pydantic**: Data validation and settings management
+- **python-multipart**: File upload support for FastAPI
+
+#### Step 14: Configure Application Environment
+
+Set up environment variables for your application to connect to Azure services.
+
+```bash
+export DS_POOL_ENDPOINT="$POOL_MGMT"
+export AZURE_OPENAI_ENDPOINT="$OPENAI_ENDPOINT"
+export AZURE_OPENAI_DEPLOYMENT_NAME="$DEPLOYMENT_NAME"
+export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
+
+# Verify configuration
+echo "Session Pool Endpoint: $DS_POOL_ENDPOINT"
+echo "Azure OpenAI Endpoint: $AZURE_OPENAI_ENDPOINT"
+echo "Deployment Name: $AZURE_OPENAI_DEPLOYMENT_NAME"
+```
+
+---
+
+### Part 6: Verification
+
+#### Step 15: Verify Setup
+
+Confirm all resources are properly configured and accessible.
+
+```bash
+# Check session pool status
+az containerapp sessionpool show --name $POOL --resource-group $RG --query "properties.provisioningState" -o tsv
+
+# Check OpenAI deployment
+az cognitiveservices account deployment list \
+  --name $OPENAI_NAME \
+  --resource-group $RG \
+  --query "[].name" -o tsv
+
+# Check role assignments
+az role assignment list --scope $POOL_ID --query "[].roleDefinitionName" -o tsv
+az role assignment list --scope $OPENAI_ID --query "[].roleDefinitionName" -o tsv
+
+echo "✓ Setup verification complete"
+```
+
+**Expected results:**
+- Session pool provisioning state: `Succeeded`
+- OpenAI deployment shows: `gpt-35-turbo`
+- Role assignments include all required roles
+
+---
+
+### Summary
+
+You have now successfully:
+
+✅ Created a resource group and Azure infrastructure  
+✅ Deployed an Azure Container Apps Dynamic Session Pool  
+✅ Configured Azure OpenAI with GPT-3.5 Turbo  
+✅ Assigned all necessary RBAC permissions  
+✅ Set up your development environment with required dependencies  
+✅ Configured application environment variables  
+
+**Next Steps:** Proceed to implement your FastAPI application following the patterns in the sample repository, or return to the main lab to use the pre-provisioned resources.
+
+---
+
+---
+
+## Segment 4 - Use an MCP server with shell dynamic sessions in Azure Container Apps (45 minutes)
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment4-mcp-shell
+
+# Segment 4 - Use an MCP server with shell dynamic sessions in Azure Container Apps (45 minutes)
+
+> Audience: platform and infra engineers who will provision and operate shell based session pools using MCP to enable agents and tools to connect and run shell commands remotely.
+
+## Preparing for future lab sections
+
+Kick off the longer-running Goose deployment now so it finishes by the time you need it later in the lab:
+
+1. Open **Windows Terminal** (or the integrated VS Code terminal) and choose the **Ubuntu** shell.
+2. Navigate to the Goose sample folderauthenticate with Azure Developer CLI.
+
+  ```bash
+  cd /mnt/c/Users/LabUser/Documents/ACASamples/goose-on-aca
+  ```
+
+3. Authenticate with Azure Developer CLI.
+
+  ```
+  azd auth login
+  ```
+
+4. Provision the Goose infrastructure.
+
+  ```bash
+  azd up
+  ```
+
+Leave this terminal running; you'll return to the MCP instructions in the next sections while `azd up` completes.
+
+## Overview
+This segment walks through creating a Shell container type Session Pool with the MCP Server enabled, retrieving the MCP endpoint and API key, and exercising the MCP JSON-RPC tools to launch and run remote shells.
+
+Estimated duration: 45 minutes
+
+---
+
+## Learning Objectives
+- Deploy a Shell session pool ARM template (2025-02-02-preview API)
+- Retrieve the MCP server endpoint and API key using `az rest`
+- Initialize the MCP server and launch a remote shell environment via JSON-RPC
+- Run commands in the remote shell and fetch results
+
+---
+
+## 1. Set Up Environment Variables
+
+Start by opening **Visual Studio Code** from your desktop and navigating to the terminal at the bottom of the window.
+
+If the wsl terminal is not already open, click on the down arrow next to the **+** button and select **Ubuntu (WSL) (Default)**. This will open a terminal that we'll use to create our resources.
+
+## Clear credentials and Login to Azure
+
+Use the WSL terminal for the following commands.
+
+Clear the current account credentials and re-login to VS Code. If prompted, Use the credentials from the Resources tab in the lab to login.
+
+```azcli
+az account clear
+az login
+```
+
+In your terminal, set the following environment variables for your subscription, resource group, session pool name, and location to be used for creating resources.
+
+First, query for your Azure subscription ID and set the value to a variable:
+
+```bash
+export SUBSCRIPTION_ID=$(az account show --query id --output tsv | tr -d '\r')
+echo $SUBSCRIPTION_ID
+```
+
+Set the remaining variables used in this procedure:
+
+```bash
+export RESOURCE_GROUP=my-shell-session-rg
+export SESSION_POOL_NAME=myshellpool
+export LOCATION=westus3
+echo $RESOURCE_GROUP
+echo $SESSION_POOL_NAME
+echo $LOCATION
+```
+
+You'll use these variables to create the resources in the following steps.
+
+Next, create a resource group:
+
+```azcli
+az group create --name $RESOURCE_GROUP --location $LOCATION
+```
+
+> Note: If creating the resource group fails, run `az login` and use the credentials in the Resources tab of the lab.
+
+---
+
+## 2. Create a shell session pool with an MCP server endpoint (ARM template)
+In this step you'll use the ARM template below to create a shell session pool resource with MCP server enabled.
+
+- In Visual Studio Code, check for a file called deploy.json.  
+- If it's there, verify that it matches the file below.  
+- Otherwise, create a new file named `deploy.json` . Once created, copy the following contents into the file and save it.
+
+```json
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "name": { "type": "String" },
+        "location": { "type": "String" }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.App/sessionPools",
+            "apiVersion": "2025-02-02-preview",
+            "name": "[parameters('name')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "poolManagementType": "Dynamic",
+                "containerType": "Shell",
+                "scaleConfiguration": {
+                    "maxConcurrentSessions": 5
+                },
+                "sessionNetworkConfiguration": {
+                    "status": "EgressEnabled"
+                },
+                "dynamicPoolConfiguration": {
+                    "lifecycleConfiguration": {
+                        "lifecycleType": "Timed",
+                        "coolDownPeriodInSeconds": 300
+                    }
+                },
+                "mcpServerSettings": { 
+                    "isMCPServerEnabled": true
+                }
+            }
+        }
+    ]
+}
+```
+
+After the file is saved you can go back to the terminal and navigate to the file path where you saved the json file. Then run the following command to deploy the ARM template to your existing resource group:
+
+```azcli
+az deployment group create --resource-group $RESOURCE_GROUP --template-file deploy.json --name $SESSION_POOL_NAME --parameters name=$SESSION_POOL_NAME location=$LOCATION
+```
+
+Once completed, this will create a dynamic shell session resource that is MCP enabled.
+
+---
+
+## 3. Retrieve the MCP Server Endpoint
+After the resource is created, obtain the MCP endpoint using **az rest** against the session pool ARM resource (2025-02-02-preview API). Example:
+
+```bash
+export MCP_ENDPOINT=$(az rest --method GET --uri "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.App/sessionPools/$SESSION_POOL_NAME?api-version=2025-02-02-preview" --query "properties.mcpServerSettings.mcpServerEndpoint" -o tsv | tr -d '\r')
+echo $MCP_ENDPOINT
+```
+
+This will query the MCP server endpoint and store it in the `MCP_ENDPOINT` environment variable.
+
+---
+
+## 4. Fetch an API Key (MCP credentials)
+To interact with the MCP server, request credentials by calling the `fetchMCPServerCredentials` action on the session pool resource:
+
+```bash
+export API_KEY=$(az rest --method POST --uri "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.App/sessionPools/$SESSION_POOL_NAME/fetchMCPServerCredentials?api-version=2025-02-02-preview" --query "apiKey" -o tsv | tr -d '\r')
+echo $API_KEY
+```
+
+The response includes an `apiKey` value that will be stored in the `API_KEY` environment variable.
+
+---
+
+## 5. Initialize the MCP Server (JSON-RPC)
+
+Initialize the MCP server connection using JSON-RPC. Run the following `curl` command, `$MCP_ENDPOINT` and `$API_KEY` will be referenced as values obtained in previous steps:
+
+```bash
+curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{ "jsonrpc": "2.0", "id": "1", "method": "initialize" }'
+```
+
+A successful response will include `protocolVersion` and `serverInfo`.
+
+---
+
+## 6. Launch Shell Environment
+
+Run the following commands in the VS Code wsl terminal:
+
+```bash
+export ENVIRONMENT_RESPONSE=$(curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{ "jsonrpc": "2.0", "id": "2", "method": "tools/call", "params": { "name": "launchShellEnvironment", "arguments": {} } }')
+echo $ENVIRONMENT_RESPONSE
+```
+
+View the output from the previous commands, extract/copy the `environmentId` from the response and set it as an environment variable.
+
+```bash
+export ENVIRONMENT_ID="<paste-your-environment-id-here>"
+echo $ENVIRONMENT_ID
+```
+
+---
+
+## 7. Run Commands in the Remote Shell
+Run commands in your remote shell environment. :
+
+```bash
+curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "3",
+    "method": "tools/call",
+    "params": {
+      "name": "runShellCommandInRemoteEnvironment",
+      "arguments": {
+        "environmentId": "$ENVIRONMENT_ID",
+        "shellCommand": "echo Hello from Azure Container Apps dynamic shell session!"
+      }
+    }
+  }' | jq -r '.result.structuredContent.stdout'
+```
+
+**Output**
+```
+Hello from Azure Container Apps dynamic shell session!
+```
+
+---
+
+## 8. Manage files in the remote shell session
+
+Use the previous remote environment to run shell commands to create and manage files using Python. 
+
+### Step 1: Create a text file and verify its contents
+
+Create and read a file in the remote shell. Copy the following command and run it in the terminal using your previously created environment variables. 
+
+```bash
+curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "4",
+    "method": "tools/call",
+    "params": {
+      "name": "runShellCommandInRemoteEnvironment",
+      "arguments": {
+        "environmentId": "$ENVIRONMENT_ID",
+        "shellCommand": "echo \"Hello from remote shell!\" > hello.txt && echo \"Created file: hello.txt\" && echo \"Contents of hello.txt:\" && cat hello.txt"
+      }
+    }
+  }' | jq -r '.result.structuredContent.stdout'
+```
+
+**Expected Output:**
+```
+Created file: hello.txt
+Contents of hello.txt:
+Hello from remote shell!
+```
+
+### Step 2: Install Python and create a script to rename the file
+
+Install the necessary Python packages in the remote environment and run the scripts to rename the file.
+
+```bash
+curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "5",
+    "method": "tools/call",
+    "params": {
+      "name": "runShellCommandInRemoteEnvironment",
+      "arguments": {
+        "environmentId": "$ENVIRONMENT_ID",
+        "shellCommand": "echo \"Installing Python...\" && apt-get update -qq && apt-get install -y python3 -qq && echo \"Python installed successfully\" && python3 --version && echo && echo \"Creating rename script...\" && echo \"import os\" > rename_file.py && echo \"# Read and display the original file content\" >> rename_file.py && echo \"with open(\\\"hello.txt\\\", \\\"r\\\") as f:\" >> rename_file.py && echo \"    content = f.read()\" >> rename_file.py && echo \"print(\\\"Original file contains:\\\", content.strip())\" >> rename_file.py && echo \"# Rename the file\" >> rename_file.py && echo \"os.rename(\\\"hello.txt\\\", \\\"hello_backup.txt\\\")\" >> rename_file.py && echo \"print(\\\"File renamed: hello.txt -> hello_backup.txt\\\")\" >> rename_file.py && echo && echo \"Running Python script...\" && python3 rename_file.py"
+      }
+    }
+  }' | jq -r '.result.structuredContent.stdout'
+```
+
+**Expected Output:**
+```
+Installing Python...
+Python installed successfully
+Python 3.11.2
+
+Creating rename script...
+
+Running Python script...
+Original file contains: Hello from remote shell!
+File renamed: hello.txt -> hello_backup.txt
+```
+
+### Step 3: Verify the renamed file and read its contents
+
+Now let's verify that the file was successfully renamed and read its contents to confirm the rename operation worked correctly:
+
+```bash
+curl -sS -X POST "$MCP_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-ms-apikey: $API_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "6",
+    "method": "tools/call",
+    "params": {
+      "name": "runShellCommandInRemoteEnvironment",
+      "arguments": {
+        "environmentId": "$ENVIRONMENT_ID",
+        "shellCommand": "echo \"Checking if rename was successful...\" && echo \"Files in directory:\" && ls -la *.txt *.py && echo && echo \"Reading contents of renamed file:\" && cat hello_backup.txt"
+      }
+    }
+  }' | jq -r '.result.structuredContent.stdout'
+```
+
+**Expected Output:**
+```
+Checking if rename was successful...
+Files in directory:
+-rw-r--r-- 1 root root   25 Nov 15 03:24 hello_backup.txt
+-rw-r--r-- 1 root root  276 Nov 15 03:25 rename_file.py
+
+Reading contents of renamed file:
+Hello from remote shell!
+```
+
+---
+
+## 9. Additional Practical Exercises (optional)
+
+Try these additional exercises:
+
+- Run other shell commands and capture their output
+- Install and use additional development tools in the remote environment  
+- Create more complex Python scripts that interact with multiple files
+
+---
+
+
+---
+
+## References
+- MCP JSON-RPC examples (see lab template)
+- Azure ARM reference for `Microsoft.App/sessionPools` (2025-02-02-preview)
+
+---
+
+## Segment 5 - Deploy the Goose Open Source Agent on Azure Container Apps (≤60 minutes)
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment5-goose-agent
+
+# Segment 5 - Deploy the Goose Open Source Agent on Azure Container Apps (≤60 minutes)
+
+> This segment extends the earlier GPU work by standing up the Goose AI agent stack (auth proxy, Goose web UI/CLI, Ollama-backed model server, optional MCP extensions) using the ready-to-run `goose-on-aca` template. Expect 45-60 minutes depending on whether you enable MCP integrations.
+
+---
+
+## Learning Objectives
+- Provision the Goose agent architecture with Azure Developer CLI (`azd`)
+- Understand the core services (auth proxy, Goose agent, Ollama GPU server) and how they interconnect
+- Configure persistence, authentication, and workload profile settings
+- Enable optional MCP extensions (GitHub and Email) and understand their environment variables
+- Validate agent functionality via the web UI and CLI, then perform post-deployment maintenance
+
+---
+
+## Prerequisites
+- Azure CLI and Azure Developer CLI (`azd`) installed and logged in
+- Subscription with `Microsoft.App`, `Microsoft.ContainerRegistry`, and `Microsoft.Storage` providers registered
+- GPU workload profile quota available in one of the supported regions (West US 3, Australia East, Sweden Central, or other current GPU regions)
+- Ollama running in the same ACA environment (from Segment 2) or another accessible endpoint for model hosting
+- Basic auth password you are comfortable sharing with lab participants (prompted during `azd up`)
+
+> 💡 **Time budget**: 10 minutes for repo prep, 15 minutes for deployment, 10 minutes for validation, 15 minutes for MCP integrations, 5 minutes for cleanup/recap.
+
+---
+
+## Task 1 - Prepare the Deployment Workspace (10 minutes)
+1. In the wsl terminal in VS Code, change into the goose-on-aca directory:
+```bash
+cd goose-on-aca
+```
+2. Review the project structure in the explorer on the left:
+   - `azure.yaml` orchestrates Azure resources and application components.
+   - `infra/` contains Bicep definitions for Container Apps, storage, and networking.
+   - `app/goose/` packages the Goose agent, Nginx auth proxy, and Ollama model puller.
+3. Confirm Ollama ingress URL or internal hostname from Segment 2; you will need it when prompted during `azd up`.
+
+---
+
+## Task 2 - Deploy Goose with Azure Developer CLI (15 minutes)
+1. Run `azd up` from the repo root:
+```bash
+azd up
+```
+2. Login to azd:
+```bash
+azd auth login
+```
+3. Supply prompted parameters:
+
+**Note** - If you make any mistakes, start over by typing CTRL+C, then `azd down --purge` then start over with `azd up` 
+
+  - **Environment name** (e.g., `goose-prod`) (press enter)
+  - If asked for the **Azure subscription** choose the current subscription. (press enter)
+  - if asked for a **Resource Group** - choose 1. add a new group and enter a name (e.g., `goosegroup`) (press enter)
+  - If asked for a **location** type `westus3`(press enter)
+  - If asked, provide a **Proxy Auth Password** - becomes the basic auth credential for the Nginx gateway. (e.g., `goosepw`)
+  - **Note** - please remember the password!
+  
+3. The deployment provisions:
+   - Container Apps environment + GPU workload profile.
+   - Azure Container Registry, Storage (Azure Files) for model/config persistence.
+   - Goose agent container, auth proxy, and Ollama model puller revision.
+4. Expect 15-20 minutes total; the longest step is pulling and loading the default model (qwen3:14b) on the GPU app.
+
+> 🔍 Tip: Monitor progress in the Azure portal under **Container Apps > Revisions and replicas** to see when the Ollama init container finishes pulling the model.
+
+---
+
+## Task 3 - Validate the Deployment (10 minutes)
+1. Retrieve outputs:
+   ```bash
+   azd env get-values
+   ```
+
+2. Browse to the Goose portal (`https://<auth-proxy-url>`) and authenticate using basic auth.
+
+- Get the Goose proxy URL, Admin username (`Admin`) and the password you set.
+
+- The URL looks like this onscreen:
+
+(✓) Done: Deploying service nginx-auth-proxy
+Endpoint: https://aka.ms/p-roxy-goose-prod....
+
+
+3. Launch a CLI session from the portal console or via `az containerapp exec`:
+   ```bash
+   az containerapp exec \
+     --name <goose-app-name> \
+     --resource-group <resource-group> \
+     --command "goose session"
+   ```
+4. Confirm the default model (qwen3:14b) is running by checking the Ollama service:
+   ```bash
+   az containerapp exec ... --command "ollama ps"
+   ```
+   Use `nvidia-smi` to confirm GPU utilization when issuing Goose requests.
+
+---
+
+## Task 4 - (Optional, 15 minutes) Enable MCP Extensions
+Goose supports several MCP servers; this template includes GitHub and Email MCP binaries. Enable them by setting the relevant environment variables on the Goose Container App and restarting the revision.
+
+### GitHub MCP Server
+```bash
+az containerapp update \
+  --name <goose-app-name> \
+  --resource-group <resource-group> \
+  --set-env-vars GITHUB_PERSONAL_ACCESS_TOKEN="ghp_your_token"
+```
+- Use a low-privilege PAT scoped to the repositories you want the agent to manage.
+
+### Email MCP Server (Gmail example)
+```bash
+az containerapp update \
+  --name <goose-app-name> \
+  --resource-group <resource-group> \
+  --set-env-vars \
+    MCP_EMAIL_SERVER_PASSWORD="your_app_password" \
+    MCP_EMAIL_SERVER_EMAIL_ADDRESS="your-email@gmail.com" \
+    MCP_EMAIL_SERVER_FULL_NAME="Your Name" \
+    MCP_EMAIL_SERVER_USER_NAME="your-email@gmail.com"
+```
+- App password required for Gmail; adjust for other providers by editing `/root/.config/goose/config.yaml`.
+
+### Verify MCP Activation
+1. Open the portal console for the Goose container.
+2. Run `ps aux` to confirm MCP processes are running.
+3. Execute `goose configure` to inspect generated config at `/root/.config/goose/config.yaml`.
+4. For GitHub MCP, validate connectivity using `goose session` to list issues or PRs.
+
+---
+
+## Task 5 - Customize Models and Persistence (5 minutes)
+1. To switch to Azure OpenAI, add the following environment variables (matching your deployment):
+   ```bash
+   az containerapp update \
+     --name <goose-app-name> \
+     --resource-group <resource-group> \
+     --set-env-vars \
+       AZURE_OPENAI_ENDPOINT="https://<resource>.openai.azure.com/" \
+       AZURE_OPENAI_API_VERSION="2024-05-01-preview" \
+       AZURE_OPENAI_DEPLOYMENT_NAME="<deployment-name>" \
+       GOOSE_PROVIDER="azure_openai" \
+       GOOSE_MODEL="gpt-4o"
+   ```
+   Store `AZURE_OPENAI_API_KEY` in Key Vault or Azure App Configuration and reference it securely if moving beyond the lab.
+2. Persistence directories mounted via Azure Files:
+   - Config: `/root/.config/goose/config.yaml`
+   - Sessions: `/root/.local/share/goose/sessions`
+   - Logs: `/root/.local/state/goose/logs`
+   Use these paths to back up configurations or inspect state.
+
+
+---
+
+## Troubleshooting Quick Hits
+| Symptom | Action |
+| --- | --- |
+| `azd up` appears stuck during deployment | Check Container App revision logs; Ollama model pulls can take 10+ minutes. |
+| Goose UI responds slowly or fails requests | Confirm Ollama model loaded (`ollama ps`) and GPU utilization (`nvidia-smi`). |
+| MCP servers do not appear | Ensure required environment variables are present and not set to `"NA"`; rerun `goose configure`. |
+| Authentication fails | Reset the basic auth password by updating the Nginx proxy Container App environment variables and redeploying the revision. |
+
+---
+
+## References
+- Goose on ACA repository: https://github.com/simonjj/goose-on-aca
+- Goose Agent in Action: https://techcommunity.microsoft.com/t5/s/gxcuf89792/images/bS00NDYwMjE1LTRqYkt4Sg?revision=7
+- Goose component docs: https://block.github.io/goose/
+- Azure Container Apps GPU workload profiles: https://learn.microsoft.com/azure/container-apps/workload-profiles-overview#gpu-workload-profiles
+
+---
+
+## Bonus Exercise - Enable MCP Servers (Optional)
+
+To enable GitHub or Email MCP servers, update the environment variables in your deployed Container App:
+
+
+> **Important Note**
+> The current default model optimized to run on T4 (qwen3:14b) does not work with the Github MCP server (both stdio and streaming). It is hence suggested to upgrade both GPU profile and model if the user intends to use the Github MCP server.
+>
+> The default email provider is currently configured to be Gmail. The full configuration for the email servers (SMTP/IMAP), ports, SSL can be accessed via the default Goose configuration file located on the NFS file share (`/root/.config/goose/config.yaml`).
+
+
+Running the commands below will set the environment variables and regenerate the configuration (upon restart of the app) to include the appropriate section needed for the respective MCP server to be added to the Goose configuration.
+
+```bash
+# Update GitHub MCP 
+az containerapp update \
+  --name <goose-app-name> \
+  --resource-group <resource-group-name> \
+  --set-env-vars GITHUB_PERSONAL_ACCESS_TOKEN="ghp_your_token_here"
+
+# Update Email MCP 
+az containerapp update \
+  --name <goose-app-name> \
+  --resource-group <resource-group-name> \
+  --set-env-vars \
+    MCP_EMAIL_SERVER_PASSWORD="your_app_password" \
+    MCP_EMAIL_SERVER_EMAIL_ADDRESS="your-email@gmail.com" \
+    MCP_EMAIL_SERVER_FULL_NAME="Your Name" \
+    MCP_EMAIL_SERVER_USER_NAME="your-email@gmail.com"
+```
+
+---
+
+## AI-Ready Apps: Containerize and Modernize with Azure
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/welcome-screen
+
+@lab.Title
+
+# AI-Ready Apps: Containerize and Modernize with Azure
+**Abstract:**
+Modernize containerized apps with AI on Azure. Learn how to quickly deploy powerful, flexible AI-powered applications to Azure Container Apps. Gain hands-on experience using Azure OpenAI and open-source models on serverless GPUs for cost-efficient AI inferencing. Secure enterprise-grade apps and ensure compliance-all through a guided, real-world project.
+
+## Welcome to Your Lab Environment
+
+To begin, log into the virtual machine using the following credentials: +++@lab.VirtualMachine(Win11-Pro-Base).Password+++
+
+Next, Sign in to Azure to start auto-generation of resources during the introductions (10-15 mins):
+   
+   - Open your browser and go to the Azure Portal: `https://portal.azure.com`
+   - Follow the instructions for signing in.  
+   - For credentials, open the **Resources** tab above and use the **User Name** and **TAP** from the **Azure Portal** section.
+
+**Note:** Text formatted as an +++example+++ represents type text. Clicking on this text will automatically insert it to prevent any typing errors.
+
+
+---
+
+---
+
+## MSLearn.instructions.md
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/.github/instructions/MSLearn.instructions
+
+You have access to MCP tools called `microsoft_docs_search` and `microsoft_docs_fetch` - these tools allow you to search through and fetch Microsoft's latest official documentation, and that information might be more detailed or newer than what's in your training data set.
+
+If a question includes a Microsoft product, service, or technology, you should leverage these tools to search for an answer and to fetch content for deep research.
+
+---
+
+## AI Agent Guidelines
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/AGENTS
+
+# AI Agent Guidelines
+
+This file contains instructions and guidelines for AI agents working on this repository.
+
+## 🔒 Security Best Practices
+
+**Never commit sensitive information to this repository:**
+- API keys, tokens, or credentials
+- Personal access tokens (PATs)
+- Database connection strings with passwords
+- Environment-specific configuration values
+
+**For MCP configuration files (`mcp.json`):**
+- Use placeholder values like `"YOUR_API_KEY_HERE"` or `"${API_KEY}"`
+- Reference environment variables for sensitive data
+- Include documentation about required environment variables
+
+## 📋 Repository Guidelines
+
+### Purpose
+This repository is one of several for Microsoft Ignite 2025 sessions and should:
+- Provide a consistent structure for all Ignite content repositories
+- Include proper documentation for the customer
+- Support MkDocs documentation generation
+- Enable Learn MCP (Model Context Protocol) server integration
+
+### Consistent Experience
+- Maintain the existing folder structure (`docs/`, `src/`, `lab/`, etc.)
+- Don't remove placeholder folders unless explicitly instructed
+- Keep the banner image and branding consistent
+- Ensure all links use proper campaign codes when referencing Learn content
+- SUPPORT.md should be updated with support information.
+- All readme files in the repo should have updates
+- All subfolder names under /docs should be reviewed for mkdocs compatibility
+- Unused subfolders (e.g. that only have a README file in them) should be cleaned up before the repo is released.
+- No large binary files like powerpoints or videos should be added to the repo.
+
+### What NOT to modify without permission:
+- License files (`LICENSE`, `CODE_OF_CONDUCT.md`)
+- Security files (`SECURITY.md`)
+- GitHub workflow files in `.github/` directory
+
+---
+
+## Microsoft Open Source Code of Conduct
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/CODE_OF_CONDUCT
+
+# Microsoft Open Source Code of Conduct
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+
+Resources:
+
+- [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/)
+- [Microsoft Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
+- Contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with questions or concerns
+- Employees can reach out at [aka.ms/opensource/moderation-support](https://aka.ms/opensource/moderation-support)
+
+---
+
+## [Microsoft Ignite 2025](https://ignite.microsoft.com)
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/README
+
+<p align="center">
+<a href="https://ignite.microsoft.com/">
+<img src="img/Banner-ignite-25.png" alt="Microsoft Ignite 2025" width="1200"/>
+</a>
+</p>
+
+# [Microsoft Ignite 2025](https://ignite.microsoft.com)
+
+
+## 🔥 AI-Ready Apps: Containerize and Modernize with Azure
+
+Welcome to the Microsoft Ignite 2025 session **PREL15: AI-Ready Apps - Containerize and Modernize with Azure**!
+
+## 🎯 Overview
+
+Modernize containerized apps with AI on Azure. This hands-on lab demonstrates how to quickly deploy powerful, flexible AI-powered applications to Azure Container Apps. You'll gain hands-on experience using Azure OpenAI and open-source models on serverless GPUs for cost-efficient AI inferencing, while securing enterprise-grade apps and ensuring compliance.
+
+### What You'll Learn
+
+- **Azure Container Apps**: Deploy containerized AI applications with serverless GPUs
+- **Azure OpenAI Integration**: Build intelligent applications with GPT models using LangChain
+- **Open-Source AI Models**: Run Ollama and local LLMs on GPU-enabled containers
+- **Dynamic Sessions**: Execute untrusted code safely in isolated Python environments
+- **AI Agent Development**: Build autonomous agents with MCP and Goose
+- **Cost-Efficient AI**: Optimize AI inferencing with GPU-based compute
+- **Enterprise Security**: Implement secure, compliant AI applications
+- **Modern Development Practices**: Use Infrastructure as Code (IaC) and containerization
+
+## 📚 Repository Structure
+
+```
+├── docs/           # Comprehensive documentation and MkDocs site
+├── lab/            # Hands-on lab materials and instructions
+│   ├── instructions/  # Step-by-step lab guides
+│   └── README.md      # Lab overview and setup
+├── src/            # Source code samples and templates
+├── data/           # Sample data files
+└── img/            # Images and diagrams
+```
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Azure subscription with appropriate permissions
+- Azure CLI installed and configured
+- WSL2 (Windows Subsystem for Linux) or Linux environment
+- Python 3.12+
+- VS Code or preferred IDE
+
+### Quick Start
+
+1. **Clone this repository**
+   ```bash
+   git clone https://github.com/Azure-Samples/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure.git
+   cd ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure
+   ```
+
+2. **Review the lab instructions**
+   - See [`lab/README.md`](lab/README.md) for detailed setup and lab guide
+   - Follow the step-by-step instructions in [`lab/instructions/`](lab/instructions/)
+
+3. **Set up your Azure environment**
+   - Ensure you have the required Azure resource providers registered
+   - Configure your Azure CLI authentication
+
+## 🧪 Lab Exercises
+
+This lab consists of multiple segments covering:
+
+1. **AI & GPU Playbook**: Understanding AI workloads and GPU acceleration on Azure
+2. **Environment Setup**: Configure Azure resources and development environment
+3. **Azure OpenAI Deployment**: Create and configure Azure OpenAI resources with GPT models
+4. **Ollama & Open-Source Models**: Deploy local LLMs on serverless GPUs
+5. **Dynamic Sessions**: Set up Azure Container Apps session pools for code execution
+6. **MCP Shell Integration**: Implement Model Context Protocol for AI agents
+7. **Goose AI Agent**: Build autonomous coding agents with Goose
+8. **LangChain Integration**: Build AI-powered applications combining multiple AI services
+9. **Testing & Deployment**: Test and deploy your containerized AI applications
+
+See [`lab/README.md`](lab/README.md) for complete lab instructions.
+
+## 📖 Documentation
+
+Comprehensive documentation is available in the `/docs` directory and can be viewed as a MkDocs site:
+
+```bash
+pip install -r requirements.txt
+mkdocs serve
+```
+
+Then navigate to `http://localhost:8000`
+
+## 🔑 Key Technologies
+
+- **Azure Container Apps**: Serverless container platform with GPU support and dynamic sessions
+- **Azure OpenAI Service**: Enterprise-grade AI models (GPT-3.5/GPT-4)
+- **Ollama**: Run open-source LLMs (Llama, Mistral, Phi) locally and on Azure
+- **GPU Acceleration**: Serverless GPU compute for cost-efficient AI inferencing
+- **LangChain**: Framework for building LLM-powered applications
+- **MCP (Model Context Protocol)**: Connect AI agents to external tools and data
+- **Goose AI Agent**: Autonomous coding agent for software development
+- **Python**: Primary programming language
+- **FastAPI**: Modern web framework for building APIs
+- **Docker**: Containerization platform
+
+## 📚 Learning Resources
+
+| Topic | Link |
+|:------|:-----|
+| Azure Container Apps Overview | [https://learn.microsoft.com/azure/container-apps/overview](https://learn.microsoft.com/azure/container-apps/overview) |
+| Azure OpenAI Service Documentation | [https://learn.microsoft.com/azure/ai-services/openai/overview](https://learn.microsoft.com/azure/ai-services/openai/overview) |
+| Azure OpenAI Quickstart | [https://learn.microsoft.com/azure/ai-services/openai/quickstart](https://learn.microsoft.com/azure/ai-services/openai/quickstart) |
+| Ollama Documentation | [https://ollama.com/](https://ollama.com/) |
+| Azure Container Apps Dynamic Sessions | [https://learn.microsoft.com/azure/container-apps/sessions](https://learn.microsoft.com/azure/container-apps/sessions) |
+| Code Interpreter in Dynamic Sessions | [https://learn.microsoft.com/azure/container-apps/sessions-code-interpreter](https://learn.microsoft.com/azure/container-apps/sessions-code-interpreter) |
+| LangChain Python Documentation | [https://python.langchain.com/](https://python.langchain.com/) |
+| LangChain Azure Integration | [https://python.langchain.com/docs/integrations/platforms/microsoft](https://python.langchain.com/docs/integrations/platforms/microsoft) |
+| Model Context Protocol (MCP) | [https://modelcontextprotocol.io/](https://modelcontextprotocol.io/) |
+| Azure Container Apps Security | [https://learn.microsoft.com/azure/container-apps/security](https://learn.microsoft.com/azure/container-apps/security) |
+| Azure Well-Architected Framework | [https://learn.microsoft.com/azure/well-architected/](https://learn.microsoft.com/azure/well-architected/) |
+| Learn at Ignite 2025 | [https://aka.ms/LearnAtIgnite](https://aka.ms/LearnAtIgnite) |
+| Ignite 2025 Next Steps | [https://aka.ms/Ignite25-Next-Steps](https://aka.ms/Ignite25-Next-Steps?ocid=ignite25_nextsteps_cnl) | 
+ 
+
+## 📋 Additional Resources
+
+- [Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)
+- [Azure Container Apps Dynamic Sessions](https://learn.microsoft.com/azure/container-apps/sessions)
+- [Azure OpenAI Service](https://learn.microsoft.com/azure/cognitive-services/openai/)
+- [LangChain Documentation](https://python.langchain.com/)
+- [Microsoft Ignite 2025](https://ignite.microsoft.com/)
+- [Microsoft Learn At Ignite](https://aka.ms/LearnAtIgnite)
+- [Ignite 2025 Next Steps](https://aka.ms/ignite25-next-steps)
+
+
+
+
+
+## 🤝 Contributing
+
+This project welcomes contributions and suggestions. Please see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for details on our code of conduct.
+
+## 📄 License
+
+- Code: [MIT License](LICENSE)
+- Documentation: [Creative Commons Attribution 4.0 License](LICENSE-DOCS)
+
+## 🔒 Security
+
+See [SECURITY.md](SECURITY.md) for information about reporting security vulnerabilities.
+
+## 💬 Support
+
+For support and questions, please see [SUPPORT.md](SUPPORT.md).
+
+---
+
+**Microsoft Ignite 2025** | Session PREL15
+
+*Building the future of AI-ready applications with Azure*
+
+---
+
+## SECURITY.md
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/SECURITY
+
+<!-- BEGIN MICROSOFT SECURITY.MD V1.0.0 BLOCK -->
+
+## Security
+
+Microsoft takes the security of our software products and services seriously, which
+includes all source code repositories in our GitHub organizations.
+
+**Please do not report security vulnerabilities through public GitHub issues.**
+
+For security reporting information, locations, contact information, and policies,
+please review the latest guidance for Microsoft repositories at
+[https://aka.ms/SECURITY.md](https://aka.ms/SECURITY.md).
+
+<!-- END MICROSOFT SECURITY.MD BLOCK -->
+
+---
+
+## TODO: The maintainer of this repo has not yet edited this file
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/SUPPORT
+
+# TODO: The maintainer of this repo has not yet edited this file
+
+**REPO OWNER**: Do you want Customer Service & Support (CSS) support for this product/project?
+
+- **No CSS support:** Fill out this template with information about how to file issues and get help.
+- **Yes CSS support:** Fill out an intake form at [aka.ms/onboardsupport](https://aka.ms/onboardsupport). CSS will work with/help you to determine next steps.
+- **Not sure?** Fill out an intake as though the answer were "Yes". CSS will help you decide.
+
+*Then remove this first heading from this SUPPORT.MD file before publishing your repo.*
+
+# Support
+
+## How to file issues and get help  
+
+This project uses GitHub Issues to track bugs and feature requests. Please search the existing 
+issues before filing new issues to avoid duplicates.  For new issues, file your bug or 
+feature request as a new Issue.
+
+For help and questions about using this project, please **REPO MAINTAINER: INSERT INSTRUCTIONS HERE 
+FOR HOW TO ENGAGE REPO OWNERS OR COMMUNITY FOR HELP. COULD BE A STACK OVERFLOW TAG OR OTHER
+CHANNEL. WHERE WILL YOU HELP PEOPLE?**.
+
+## Microsoft Support Policy  
+
+Support for this **PROJECT or PRODUCT** is limited to the resources listed above.
+
+---
+
+## Documentation
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/docs/README
+
+# Documentation
+
+Welcome to the documentation for **AI-Ready Apps: Containerize and Modernize with Azure**!
+
+## 📖 About This Documentation
+
+This documentation site provides comprehensive guides, tutorials, and reference materials for modernizing containerized AI applications on Azure. Learn to deploy powerful AI applications using Azure Container Apps with GPU support, Azure OpenAI, open-source models with Ollama, dynamic code execution, and AI agent development.
+
+## 🚀 Viewing the Documentation
+
+This site is built with [MkDocs](https://www.mkdocs.org/) and uses the Material theme for a modern, searchable documentation experience.
+
+### Local Development
+
+To view the documentation locally:
+
+1. **Install dependencies**
+   ```bash
+   pip install -r ../requirements.txt
+   ```
+
+2. **Start the development server**
+   ```bash
+   cd ..
+   mkdocs serve
+   ```
+
+3. **Open in your browser**
+   - Navigate to `http://localhost:8000`
+   - Changes auto-reload as you edit
+
+### Build Static Site
+
+To build the static documentation site:
+
+```bash
+mkdocs build
+```
+
+The built site will be in the `site/` directory.
+
+## 📚 Documentation Structure
+
+### Getting Started
+
+- **Overview**: Introduction to Azure Container Apps Dynamic Sessions
+- **Prerequisites**: Required tools, accounts, and knowledge
+- **Quick Start**: Get up and running quickly
+- **Architecture**: Understanding the solution architecture
+
+### Tutorials & Guides
+
+- **Lab Instructions**: Step-by-step hands-on lab exercises
+- **Deployment Guide**: Deploy applications to Azure
+- **Configuration**: Configure Azure resources and applications
+- **Best Practices**: Security, performance, and reliability guidelines
+
+### Reference
+
+- **Azure Resources**: Details about Azure services used
+- **API Reference**: Application and Azure API documentation
+- **CLI Commands**: Common Azure CLI commands and scripts
+- **Troubleshooting**: Solutions to common issues
+
+### Examples
+
+- **Code Samples**: Working code examples
+- **Use Cases**: Real-world application scenarios
+- **Integration Patterns**: Architectural patterns and integrations
+
+## 🔧 Customization
+
+### Configuration
+
+The site is configured in [`mkdocs.yml`](../mkdocs.yml). Key settings:
+
+```yaml
+site_name: AI-Ready Apps: Containerize and Modernize with Azure
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+```
+
+### Custom Styling
+
+Custom CSS is located in [`assets/extra.css`](assets/extra.css).
+
+### Custom Templates
+
+Template overrides are in [`overrides/`](overrides/) directory.
+
+## 📝 Contributing to Documentation
+
+We welcome contributions! To contribute:
+
+1. **Edit Markdown files** in the `docs/` directory
+2. **Preview changes** locally with `mkdocs serve`
+3. **Submit a pull request** with your improvements
+
+### Writing Guidelines
+
+- Use clear, concise language
+- Include code examples where applicable
+- Add diagrams for complex concepts
+- Test all commands and code samples
+- Follow the existing structure and style
+
+### Markdown Features
+
+MkDocs Material supports enhanced Markdown features:
+
+- **Admonitions**: Call-out boxes for notes, warnings, tips
+- **Code Blocks**: Syntax highlighting with copy button
+- **Tabs**: Organize content in tabs
+- **Tables**: Responsive data tables
+- **Icons & Emojis**: Visual elements
+- **Diagrams**: Mermaid diagrams support
+
+## 🎯 Key Topics
+
+### GPU-Accelerated AI on Azure
+
+Deploy cost-efficient AI workloads:
+
+- Serverless GPU compute
+- GPU vs CPU performance comparison
+- Cost optimization strategies
+- Workload patterns and best practices
+
+### Azure Container Apps Dynamic Sessions
+
+Learn about secure, isolated Python environments for code execution:
+
+- Architecture and components
+- Security and isolation
+- Session lifecycle management
+- Best practices
+
+### Azure OpenAI Integration
+
+Integrate GPT models into your applications:
+
+- Model deployment and configuration
+- LangChain integration
+- Prompt engineering
+- Token management and cost control
+
+### Open-Source Models with Ollama
+
+Run local LLMs on Azure:
+
+- Deploying Llama, Mistral, Phi models
+- GPU-accelerated inferencing
+- Model selection and optimization
+- Hybrid cloud/local deployments
+
+### AI Agent Development
+
+Build autonomous AI agents:
+
+- **MCP (Model Context Protocol)**: Connect agents to tools and data
+- **Goose Agent**: Autonomous coding and development
+- Agent architectures and patterns
+- Tool integration and orchestration
+
+### LangChain Framework
+
+Build LLM-powered applications:
+
+- Agents and tools
+- Memory and context
+- Chains and workflows
+- Multi-model integration
+- Custom tool development
+
+### Security & Compliance
+
+Implement secure, enterprise-grade AI applications:
+
+- RBAC and identity management
+- Network isolation and sandboxing
+- Data protection and privacy
+- Compliance considerations (GDPR, HIPAA)
+- Secure AI inferencing
+
+## 🔗 External Resources
+
+### Microsoft Learn
+
+- [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/)
+- [Azure OpenAI Service](https://learn.microsoft.com/azure/cognitive-services/openai/)
+- [Azure CLI Reference](https://learn.microsoft.com/cli/azure/)
+
+### Community Resources
+
+- [LangChain Documentation](https://python.langchain.com/)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [Python Azure SDK](https://learn.microsoft.com/python/azure/)
+
+### Sample Code
+
+- [Container Apps Dynamic Sessions Samples](https://github.com/Azure-Samples/container-apps-dynamic-sessions-samples)
+- [Azure OpenAI Samples](https://github.com/Azure-Samples/openai)
+- [LangChain Templates](https://github.com/langchain-ai/langchain/tree/master/templates)
+
+## 🛠️ Tools & Extensions
+
+### Recommended VS Code Extensions
+
+- **Python**: Python language support
+- **Azure Tools**: Azure resource management
+- **Markdown All in One**: Enhanced Markdown editing
+- **MkDocs Material**: MkDocs preview support
+
+### CLI Tools
+
+- **Azure CLI**: Azure resource management
+- **azd**: Azure Developer CLI
+- **kubectl**: Kubernetes management (if using AKS)
+
+## 📞 Support
+
+Need help? Here's how to get support:
+
+- **Lab Issues**: See [`../lab/README.md`](../lab/README.md) troubleshooting section
+- **Azure Support**: [Azure Support Plans](https://azure.microsoft.com/support/plans/)
+- **Community**: [Microsoft Q&A](https://learn.microsoft.com/answers/)
+- **GitHub Issues**: Report issues in this repository
+
+## 📄 License
+
+- Documentation: [Creative Commons Attribution 4.0](../LICENSE-DOCS)
+- Code Samples: [MIT License](../LICENSE)
+
+---
+
+**Microsoft Ignite 2025** | Session PREL15
+
+*Comprehensive documentation for building AI-ready applications with Azure*
+
+---
+
+## Lab: AI-Ready Apps - Containerize and Modernize with Azure
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/README
+
+# Lab: AI-Ready Apps - Containerize and Modernize with Azure
+
+## 🎯 Lab Overview
+
+Welcome to the hands-on lab for **AI-Ready Apps: Containerize and Modernize with Azure**! 
+
+Modernize containerized apps with AI on Azure. In this lab, you'll learn how to quickly deploy powerful, flexible AI-powered applications to Azure Container Apps. Gain hands-on experience using Azure OpenAI and open-source models on serverless GPUs for cost-efficient AI inferencing. Secure enterprise-grade apps and ensure compliance—all through a guided, real-world project.
+
+### Learning Objectives
+
+By the end of this lab, you will be able to:
+
+- ✅ Deploy containerized AI applications on Azure Container Apps with GPU support
+- ✅ Create and configure Azure OpenAI resources with GPT models
+- ✅ Run open-source LLMs (Ollama) on serverless GPUs for cost-efficient inferencing
+- ✅ Set up Azure Container Apps Dynamic Session Pools for secure code execution
+- ✅ Build AI agents using MCP (Model Context Protocol) and Goose
+- ✅ Integrate multiple AI services with LangChain
+- ✅ Configure proper RBAC (Role-Based Access Control) for Azure resources
+- ✅ Implement enterprise security and compliance best practices
+- ✅ Optimize AI workloads for cost and performance
+
+### What is Azure Container Apps Dynamic Sessions?
+
+Azure Container Apps Dynamic Sessions provides secure, isolated Python environments where you can execute untrusted code safely. This is perfect for:
+
+- 🔒 Running AI-generated code in sandboxed environments
+- 🧪 Building interactive coding tutorials and learning platforms
+- 🤖 Creating AI agents that can write and execute code
+- 📊 Data analysis applications that process user-submitted code
+
+## 📋 Prerequisites
+
+### Azure Requirements
+
+- Active Azure subscription with the following permissions:
+  - Create resource groups and resources
+  - Assign roles (Contributor, Azure Container Apps Session Executor, Cognitive Services OpenAI User)
+- Azure OpenAI access (approved subscription)
+  - If you don't have access, apply at: https://aka.ms/oai/access
+- Registered resource providers:
+  - Microsoft.App
+  - Microsoft.CognitiveServices
+  - Microsoft.OperationalInsights
+
+### Local Development Environment
+
+- **Operating System**: Windows with WSL2, Linux, or macOS
+- **Tools**:
+  - Azure CLI 2.50.0 or later
+  - Python 3.12+
+  - Git
+  - VS Code (recommended) or preferred IDE
+- **Skills**:
+  - Basic Python knowledge
+  - Familiarity with Azure CLI
+  - Understanding of REST APIs
+
+### Pre-Lab Setup
+
+Before starting the lab, complete these setup steps:
+
+1. **Install Azure CLI**
+   ```bash
+   # Follow instructions at: https://learn.microsoft.com/cli/azure/install-azure-cli
+   az --version
+   ```
+
+2. **Login to Azure**
+   ```bash
+   az login
+   az account show
+   ```
+
+3. **Register Resource Providers** (one-time per subscription)
+   ```bash
+   az provider register --namespace Microsoft.CognitiveServices --wait
+   az provider register --namespace Microsoft.App --wait
+   az provider register --namespace Microsoft.OperationalInsights --wait
+   ```
+
+4. **Install Python Dependencies**
+   ```bash
+   sudo apt update
+   sudo apt install -y python3-pip python3-venv python3-dev build-essential
+   ```
+
+5. **Fix Line Endings** (for WSL users)
+   ```bash
+   sudo apt install dos2unix
+   ```
+
+## 🗂️ Lab Structure
+
+The lab is organized into the following segments:
+
+### [`instructions/`](instructions/) - Step-by-Step Guides
+
+- **welcome-screen.md** - Lab introduction and overview
+- **segment0-ai-gpu-playbook.md** - AI and GPU playbook: Understanding GPU-accelerated AI workloads
+- **segment1-gpu_aca_lab.md** - GPU Container Apps lab
+- **segment2-ollama.md** - Ollama setup: Run open-source LLMs on GPU containers
+- **segment3-langchain_aca_lab.md** - Dynamic Sessions lab: Azure OpenAI with LangChain
+- **segment4-mcp-shell.md** - MCP Shell integration: Connect AI agents to tools
+- **segment5-goose-agent.md** - Goose AI agent: Build autonomous coding agents
+
+
+### Key Files
+
+- **lab-script.md** - Complete lab walkthrough script
+- **concat_lab_segments.sh** - Script to combine lab segments
+
+## 🚀 Lab Exercises
+
+### Exercise 1: AI & GPU Playbook (20 minutes)
+
+Understand AI workloads and GPU acceleration:
+
+1. Review AI inferencing patterns
+2. Learn about GPU vs CPU for AI workloads
+3. Understand Azure Container Apps GPU support
+4. Explore cost optimization strategies
+5. Review security and compliance considerations
+
+**Key Concepts**: Serverless GPUs, cost-efficient inferencing, AI workload patterns
+
+### Exercise 2: Environment Setup (15 minutes)
+
+Set up your Azure environment and development tools:
+
+1. Create resource group
+2. Set environment variables
+3. Configure Azure CLI
+4. Register resource providers
+
+**Region Note**: Use `eastus` region for this lab as it has Azure OpenAI availability.
+
+### Exercise 3: Deploy Azure OpenAI (20 minutes)
+
+Create and configure Azure OpenAI resources:
+
+1. Create Azure OpenAI account
+2. Deploy GPT-3.5 Turbo model (version 0125)
+3. Configure API endpoints
+4. Assign Cognitive Services OpenAI User role
+
+**Important**: Model version `0125` is confirmed to work in `eastus` region.
+
+### Exercise 4: Ollama & Open-Source Models (25 minutes)
+
+Deploy local LLMs on serverless GPUs:
+
+1. Install and configure Ollama
+2. Deploy open-source models (Llama, Mistral, Phi)
+3. Run models on GPU-enabled containers
+4. Compare performance: GPU vs CPU
+5. Understand cost implications
+
+**Models**: Llama 3.2, Mistral, Phi-3, and other open-source LLMs
+
+### Exercise 5: MCP Shell Integration (20 minutes)
+
+Implement Model Context Protocol for AI agents:
+
+1. Understand MCP architecture
+2. Configure MCP servers
+3. Connect AI models to external tools
+4. Test MCP shell interactions
+5. Build custom MCP tools
+
+**Capabilities**: File operations, terminal access, API integrations
+
+### Exercise 6: Goose AI Agent (25 minutes)
+
+Build autonomous coding agents:
+
+1. Install and configure Goose
+2. Set up agent profiles and toolkits
+3. Integrate with Azure OpenAI or Ollama
+4. Test autonomous code generation
+5. Review agent decision-making
+
+**Use Cases**: Code generation, debugging, refactoring, documentation
+
+### Exercise 7: Azure Container Apps Dynamic Sessions (25 minutes)
+
+Set up secure session pools for code execution:
+
+1. Create Container Apps session pool
+2. Configure Python LTS container type
+3. Set network isolation (EgressDisabled)
+4. Assign required roles:
+   - Azure Container Apps Session Executor
+   - Contributor
+
+**Security**: Sandboxed execution, network isolation, RBAC
+
+### Exercise 8: Build LangChain Application (30 minutes)
+
+Develop an AI-powered application integrating multiple services:
+
+1. Clone sample repository
+2. Install dependencies (LangChain, FastAPI, Azure SDKs)
+3. Configure environment variables
+4. Implement LangChain agents with Azure OpenAI
+5. Integrate dynamic sessions for code execution
+6. Add Ollama models as alternative LLM backend
+
+**Integration**: Azure OpenAI + Ollama + Dynamic Sessions + MCP
+
+### Exercise 9: Deploy and Test (20 minutes)
+
+Deploy your application and verify functionality:
+
+1. Run FastAPI application locally
+2. Test API endpoints
+3. Verify code execution in sessions
+4. Test GPU-accelerated inferencing
+5. Review security and isolation
+6. Monitor application logs and performance
+7. Analyze cost and resource usage
+
+## 🔧 Configuration Guide
+
+### Required Environment Variables
+
+Set these variables for the lab:
+
+```bash
+# User Information
+export USER_PRINCIPAL_NAME=$(az ad signed-in-user show --query userPrincipalName -o tsv | tr -d '\r')
+export USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv | tr -d '\r')
+
+# Azure Resources
+export RG="aca-langchain-rg-${USER}-$RANDOM"
+export LOC="eastus"
+export POOL="aca-langchain-py-${USER}-$RANDOM"
+export OPENAI_NAME="openai-aca-${USER}-$RANDOM"
+export OPENAI_DOMAIN="openai-aca-${USER}-$RANDOM"
+export DEPLOYMENT_NAME="gpt-35-turbo"
+
+# Generated after resource creation
+export POOL_ID=$(az containerapp sessionpool show --name $POOL --resource-group $RG --query id -o tsv | tr -d '\r')
+export POOL_MGMT=$(az containerapp sessionpool show --name $POOL --resource-group $RG --query 'properties.poolManagementEndpoint' -o tsv | tr -d '\r')
+export OPENAI_ID=$(az cognitiveservices account show --name $OPENAI_NAME --resource-group $RG --query id -o tsv | tr -d '\r')
+export OPENAI_ENDPOINT=$(az cognitiveservices account show --name $OPENAI_NAME --resource-group $RG --query 'properties.endpoint' -o tsv | tr -d '\r')
+
+# Application Configuration
+export DS_POOL_ENDPOINT="$POOL_MGMT"
+export AZURE_OPENAI_ENDPOINT="$OPENAI_ENDPOINT"
+export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-35-turbo"
+export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
+```
+
+### Role Assignments
+
+You'll need to assign these roles during the lab:
+
+1. **Azure Container Apps Session Executor** (on Session Pool)
+   - Grants permission to execute code in dynamic sessions
+
+2. **Contributor** (on Session Pool)
+   - Grants permission to manage the session pool resource
+
+3. **Cognitive Services OpenAI User** (on Azure OpenAI)
+   - Grants permission to call Azure OpenAI APIs
+
+**PowerShell Scripts Provided:**
+- `AssignContainerAppsRole.ps1` - Assigns session pool roles via GUI
+- `AssignCognitiveServicesUserRole.ps1` - Assigns OpenAI role via GUI
+
+### Verification Commands
+
+Check your role assignments:
+
+```bash
+# Verify Session Pool roles
+az role assignment list \
+  --assignee "$USER_PRINCIPAL_NAME" \
+  --scope "$POOL_ID" \
+  -o table
+
+# Verify Azure OpenAI role
+az role assignment list \
+  --assignee "$USER_PRINCIPAL_NAME" \
+  --scope "$OPENAI_ID" \
+  -o table
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Issue**: Line ending errors (`/usr/bin/env: 'bash\r': No such file or directory`)
+```bash
+# Fix with dos2unix
+dos2unix concat_lab_segments.sh
+# Or with sed
+sed -i 's/\r$//' concat_lab_segments.sh
+```
+
+**Issue**: Azure OpenAI quota error (`SpecialFeatureOrQuotaIdRequired`)
+- **Solution**: Your subscription needs Azure OpenAI access approval
+- Apply at: https://aka.ms/oai/access
+
+**Issue**: Model deployment error (`InvalidResourceProperties`)
+- **Solution**: Use GPT-3.5 Turbo version `0125` in `eastus` region
+- Verified working configuration in lab
+
+**Issue**: Python venv not found (`python3.12-venv not available`)
+```bash
+# Install generic Python venv
+sudo apt install python3-venv python3-pip
+```
+
+**Issue**: Role assignment fails (`BadRequest` or `Forbidden`)
+- **Solution**: Verify you're using the Pool ID (resource path), not Pool Management Endpoint (URL)
+- Use: `/subscriptions/.../providers/Microsoft.App/sessionPools/...`
+- Not: `https://...dynamicsessions.io/...`
+
+### Getting Help
+
+- Check Azure resource status in Azure Portal
+- Review application logs with `az containerapp logs`
+- Verify environment variables are set correctly
+- Ensure all resource providers are registered
+
+## 📚 Additional Resources
+
+### Azure Documentation
+
+- [Azure Container Apps Overview](https://learn.microsoft.com/azure/container-apps/overview)
+- [Dynamic Sessions Documentation](https://learn.microsoft.com/azure/container-apps/sessions)
+- [Azure OpenAI Service](https://learn.microsoft.com/azure/cognitive-services/openai/)
+- [Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/)
+
+### Sample Code & Tutorials
+
+- [Container Apps Dynamic Sessions Samples](https://github.com/Azure-Samples/container-apps-dynamic-sessions-samples)
+- [LangChain Python Documentation](https://python.langchain.com/)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+
+### Tools & SDKs
+
+- [Azure CLI Reference](https://learn.microsoft.com/cli/azure/)
+- [Azure SDK for Python](https://learn.microsoft.com/python/azure/)
+- [LangChain Azure Integration](https://python.langchain.com/docs/integrations/platforms/microsoft)
+
+## 🎓 Lab Completion
+
+Upon completing this lab, you will have:
+
+- ✅ Deployed a fully functional AI-powered application on Azure
+- ✅ Implemented secure code execution using dynamic sessions
+- ✅ Integrated Azure OpenAI with LangChain
+- ✅ Configured proper security and RBAC
+- ✅ Gained hands-on experience with cloud-native AI applications
+
+### Clean Up Resources
+
+After completing the lab, clean up to avoid charges:
+
+```bash
+# Delete the resource group and all resources
+az group delete --name $RG --yes --no-wait
+
+# Verify deletion
+az group list --query "[?name=='$RG']" -o table
+```
+
+## 🤝 Feedback
+
+We value your feedback! Please share your experience with this lab to help us improve.
+
+---
+
+**Ready to start?** Open [`instructions/skillable_langchain_aca_lab_1.md`](instructions/skillable_langchain_aca_lab_1.md) to begin the lab!
+
+**Microsoft Ignite 2025** | Session PREL15
+
+---
+
+## Lab Instructions
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/instructions
+
+# Lab Instructions
+
+
+## Abstract
+AI-Ready Apps: Containerize and Modernize with Azure
+Abstract: Modernize containerized apps with AI on Azure. Learn how to quickly deploy powerful, flexible AI-powered applications to Azure Container Apps. Gain hands-on experience using Azure OpenAI and open-source models on serverless GPUs for cost-efficient AI inferencing. Secure enterprise-grade apps and ensure compliance-all through a guided, real-world project.
+
+
+## Lab Segments
+
+
+### Segment 0: AI-Focused Introduction to Azure Container Apps (15m)
+Get a GPU-first refresher on workload profiles, model packaging, hybrid orchestration, and observability patterns tailored for Azure Container Apps in just 15 minutes.
+[View Segment Instructions](segment0-ai-gpu-playbook.md)
+
+
+### Segment 1: AI Image Generation with Serverless GPUs on Azure Container Apps (45m)
+Learn how to deploy and scale AI image generation models using serverless GPU capabilities on Azure Container Apps for cost-effective AI inferencing.
+[View Segment Instructions](skillable_gpu_aca_lab.md) 
+
+
+### Segment 2: Modernizing Enterprise Applications with Azure OpenAI Integration (45m)
+Discover how to integrate Azure OpenAI services into existing containerized applications to add intelligent features while maintaining enterprise security and compliance.
+[View Segment Instructions](skillable_langchain_aca_lab_1.md)
+
+
+### Segment 3: Ollama (30m)
+Deploy a GPU-backed container app to host Ollama, preload multiple open-source models, compare prompt quality, and invoke the Ollama REST API with CLI tools.
+[View Segment Instructions](segment3-ollama.md)
+
+
+### Segment 4: MCP Shell Session Pools (45m)
+Create and operate Shell-type session pools with the MCP Server enabled; retrieve MCP endpoints and API keys, launch remote shells, and run JSON-RPC commands.
+[View Segment Instructions](segment4-mcp-shell.md)
+
+
+### Segment 5: Open Source Agent (≤60m)
+Deploy the Goose open-source AI agent stack with Azure Developer CLI, connect it to your existing Ollama GPU service, and optionally enable GitHub and Email MCP extensions.
+[View Segment Instructions](segment5-goose-agent.md)
+
+---
+
+## Segment 0 — AI-Accelerated Azure Container Apps Playbook (15 minutes)
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment0-ai-gpu-playbook
+
+# Segment 0 — AI-Accelerated Azure Container Apps Playbook (15 minutes)
+
+> Note: This content is being covered via slides and live in session.
+
+> Audience: Practitioners who already understand Azure Container Apps fundamentals and need a fast, GPU-focused refresher before diving into the labs.
+
+## Agenda Overview
+
+| Time | Topic | Takeaway |
+| --- | --- | --- |
+| 2 min | Context & Scenarios | Why AI workloads benefit from ACA + GPUs |
+| 4 min | GPU Workload Profiles | Pick the right SKU, manage cold starts, baseline costs |
+| 3 min | Model Packaging & Runtime Optimization | Container patterns for large models, trimming image size |
+| 3 min | Hybrid Orchestration | Combine Azure OpenAI + OSS models securely |
+| 3 min | Observability & Cost Controls | Monitor GPUs, keep spend predictable |
+
+## 1. Context & Scenarios (2 min)
+- **Objective**: Frame the types of AI workloads that justify ACA serverless GPUs.
+- **Talking Points**:
+  - Image generation, RAG inferencing, and custom fine-tuned models with bursty demand.
+  - Serverless GPUs reduce idle burn; container boundaries keep deployment consistent across environments.
+  - Contrast ACA with AKS for the same workloads (operational overhead, scale-to-zero vs. always-on).
+- **Call to Action**: Audience should identify one candidate workload in their portfolio for GPU offload.
+
+## 2. GPU Workload Profiles & Scheduling (4 min)
+- **Objective**: Show how to choose and configure GPU-enabled revisions for reliable throughput.
+- **Talking Points**:
+  - Managed GPU workload profiles (NCas, ND, preview SKUs) and limits per environment.
+  - Setting `minReplicas` > 0 for hot-start scenarios; leveraging `pre-provisioned` revisions for predictable latency.
+  - Using `az containerapp revision list` + labels to stage GPU upgrades safely.
+- **Demo Snippet**:
+  ```bash
+  az containerapp update \
+    --name $APP \
+    --resource-group $RG \
+    --workload-profile-name gp1 \
+    --min-replicas 1 \
+    --max-replicas 3 \
+    --revision-suffix gpu-rollout
+  ```
+- **Pro Tip**: Pair GPU revisions with a CPU-only revision for fallback traffic when GPU capacity is exhausted.
+
+## 3. Model Packaging & Runtime Optimization (3 min)
+- **Objective**: Teach container image practices that keep GPU deployments lean.
+- **Talking Points**:
+  - Base images: `mcr.microsoft.com/azureml/minimal-ubuntu18.04-py37-cuda11.0` or NVIDIA CUDA runtime images.
+  - Stage large model weights in Azure Files or Blob Storage; mount with secrets-managed SAS tokens.
+  - Convert models to ONNX/TensorRT where possible; enable `--gpu-memory 80%` flags to avoid OOM.
+- **Code Skeleton**:
+  ```dockerfile
+  FROM nvcr.io/nvidia/pytorch:24.02-py3
+  COPY requirements.txt .
+  RUN pip install -r requirements.txt && \
+      python -m bitsandbytes
+  COPY app/ /app
+  CMD ["python", "app/server.py"]
+  ```
+- **Pro Tip**: Use async batching libraries (vLLM, Text-Generation-Inference) to drive higher tokens/sec per replica.
+
+## 4. Hybrid Model Orchestration (3 min)
+- **Objective**: Blend managed and self-hosted AI models behind a single ACA ingress.
+- **Talking Points**:
+  - Call Azure OpenAI for regulated workloads; route specialized prompts to self-hosted OSS models.
+  - Use Dapr secrets + service invocation for cross-revision calls.
+  - Secure outbound calls with managed identity; restrict inbound to private endpoints.
+- **Architecture Sketch**:
+  - API Gateway revision → (a) Azure OpenAI endpoint, (b) GPU-backed Stable Diffusion revision.
+  - Log prompt/response metadata to Application Insights for drift detection.
+
+## 5. Observability & Cost Controls (3 min)
+- **Objective**: Keep GPU usage visible and affordable.
+- **Talking Points**:
+  - Inspect GPU metrics: `azure.containerapp/revisionGpuUtilization`, `revisionQueueLength`.
+  - Emit structured logs (per request tokens, latency) via OpenTelemetry → Azure Monitor.
+  - Implement scheduled scale policies (e.g., scale-to-zero overnight) and budget alerts in Cost Management.
+- **Dashboard Tip**:
+  - Create Grafana panels for GPU utilization vs. requests/sec to right-size `maxReplicas`.
+
+## Wrap-Up Checklist
+- ✅ Identify workloads suited for ACA GPUs
+- ✅ Configure GPU workload profiles with predictable scale
+- ✅ Package models leanly with externalized weights
+- ✅ Combine Azure OpenAI and OSS models securely
+- ✅ Monitor cost and utilization from day one
+
+> **Next Action**: Jump to Segment 1 lab to deploy the GPU-backed image generation workflow.
+
+---
+
+## Segment 1 - AI Image Generation with Serverless GPUs on Azure Container Apps
+
+Canonical URL: https://github.com/bbenz/ignite25-PREL15-ai-ready-apps-containerize-and-modernize-with-azure/blob/main/lab/instructions/segment1-gpu_aca_lab
+
+# Segment 1 - AI Image Generation with Serverless GPUs on Azure Container Apps
+
+## Title
+Deploy an AI Image Generation App Using Serverless GPUs in Azure Container Apps
+
+---
+
+## Overview
+In this part, you will:
+- Provision an Azure Container Apps environment with **serverless GPU support**
+- Deploy a pre-built AI image generation application using the **GPU quickstart container image**
+- Configure **ingress** to expose the application to the internet
+- Test the GPU-powered image generation capabilities
+- Monitor GPU utilization and performance
+- Learn best practices for optimizing GPU cold start times
+
+**Note:** GPU quota and Azure subscription access have been pre-configured for this Skillable lab environment.
+
+---
+
+## Estimated Duration
+45-60  minutes
+
+---
+
+## Lab Tasks
+
+### Task 1 - Create GPU-Enabled Container App via Azure Portal
+
+**Description:** In this task, you'll use the Azure Portal to create a new Container Apps environment and deploy a GPU-enabled AI image generation application. You'll configure the app to use serverless GPUs and expose it to the internet.
+
+1. **Open a browser and sign in to Azure:**
+   
+   - Open your browser and go to the Azure Portal: `https://portal.azure.com`
+   - Follow the instructions for signing in.  
+   - For credentials, Use the **User Name** and **TAP** from the **Azure Portal** section of the **Resources** tab above.
+   
+
+2. **Start creating a new Container App:**
+   
+   - Once signed in to azure.portal.com, type `Container App` In the search bar at the top.
+   - Select **Container App** from the results
+   - - Click **Create** button
+   - Then select **Container App**
+   
+   This will open the Container App creation wizard.
+
+3. **Configure Basic settings:**
+   
+   In the **Basics** tab, enter the following values:
+   
+   **Project details:**
+   - **Subscription:** Select your Azure subscription
+   - **Resource group:** Click **Create new resource group** and enter `my-gpu-demo-group`
+   - **Container app name:** Enter `my-gpu-demo-app`
+  
+   - **Deployment source:** Select **Container image**
+   
+   **Container Apps environment:**
+   - **Region:** Select **West US 3**
+     
+     **Note:** West US 3 is preallocated with GPU availability for this lab. Other supported regions include Sweden Central and Australia East, East US 2, and North Central US.
+   
+   - **Container Apps environment:** - keep the default
+   
+   - Click **Next: Container >** to continue
+
+4. **Configure Container settings:**
+   
+   In the **Container** tab, enter the following values:
+   
+   - Choose **Use Quickstart Image**
+   - Select **GPU Hello World Container** from the drop-down list
+      
+   **Workload profile and GPU configuration:**
+   - Note that these items are enabled with the quickstart image:
+    - **Workload profile:** Select **Consumption - Up to 4 vCPUs, 8 GiB memory**
+    - **GPU:** Check the **Enable GPU** checkbox
+    - **GPU Type:** Select **Consumption-GPU-NC8as-T4 - Up to 8 vCPUs, 56 GiB memory**
+
+   
+   The **Consumption-GPU-NC8as-T4** profile provides:
+   - Up to 8 vCPUs
+   - 56 GiB memory
+   - 1x NVIDIA T4 GPU (16GB GPU memory)
+   
+   - Click **Review + create**
+
+5. **Review and create:**
+   
+   - Review all your settings on the summary page
+   - Ensure all configurations are correct:
+     - Resource group: **my-gpu-demo-group**
+     - Container app name: **my-gpu-demo-app**
+     - Region: West US 3
+     - Image: **mcr.microsoft.com/k8se/gpu-quickstart:latest**
+     - GPU enabled with Consumption-GPU-NC8as-T4 profile
+     - Ingress enabled on port 80
+   - Click **Create**
+   - There may be a pause as Azure reviews the setup and starts the deployment
+
+6. **Wait for deployment:**
+   
+   The deployment process will begin. This typically takes 3-5 minutes to complete.
+   
+   - You'll be forwarded automatically to a **Deployment is in Progress** screen.
+   - Wait for the notification **"Deployment is complete"**
+   - Click **Go to resource** to view your deployed container app
+
+9. **Open the application in your browser:**
+   
+   Once on the Container App overview page:
+   - Locate the **Application URL** in the Essentials section at the top right
+   - Click on this URL to go open the application
+---
+
+### Task 2 - Test the GPU Image Generation Application
+
+**Description:** Now that your GPU-enabled container app is deployed, you'll test its image generation capabilities through the web interface. The application uses AI models running on the GPU to generate images from text prompts.
+
+2. **Generate your first image:**
+   
+   If the app is not open already, click on the **Application URL** from the last step
+   - **Note:** The application may take a minute or two to load the first time before displaying in the browser.  You can check the status of the application via the **Running Status** indicator in the **Revisions and Replicas** blade of your container app in the Azure portal. The status should be either **Activating** or **Running**.
+   
+   Use the web interface to generate an image:
+   - Enter a text prompt in the input field (e.g., "A futuristic city at sunset with flying cars")
+   - Click the **Generate** button
+   - Wait for the GPU to process your request and generate the image
+   
+   **Note:** The first request may take 60-90 seconds due to GPU cold start. Subsequent requests will be much faster.  The image generation typically takes 5-15 seconds once the GPU is warm.
+   
+   **What's happening:** The AI model is using the NVIDIA T4 GPU to process your text prompt and generate an image using diffusion models.
+
+3. **Test with different prompts:**
+   
+   Try various prompts to see the AI's capabilities:
+   - "A serene mountain landscape with a lake reflection"
+   - "A robot playing chess in a library"
+   - "An astronaut riding a horse on Mars"
+   - "A steampunk coffee shop in the clouds"
+   
+   Notice how response times improve after the first generation due to GPU warmup and model caching.
+
+---
+
+### Task 3 - Keep One Replica Warm (Reduce Cold Start)
+
+Azure Container Apps serverless GPUs automatically scale your application to zero when idle to save costs. Scaling back out from zero triggers a GPU cold start: provisioning the container, initializing drivers, and loading model assets add cold start time to the first request. To ensure the lab completes without waiting on cold starts, you'll configure a minimum replica of 1 so one GPU instance stays warm during the exercise. We'll discuss cold start improvement strategies later in the lab.
+
+1. **Open Scale settings:**
+   - In the left menu under **Application**, select **Scale**.
+   - Set the **Min replicas** to `1`
+   - Select **Save as a new revision**.
+
+3. **Confirm running replica:**
+   - Go to **Revisions and replicas**.
+   - Ensure the latest revision shows **Running** with at least one replica.
+
+**Result:** A single GPU-backed container remains online, eliminating cold start delays for subsequent image generations during the lab.
+
+> [!Note] Setting **Min replicas = 1** keeps a GPU instance allocated at all times which is great for eliminating cold starts, but it incurs continuous GPU charges. This is fine for the lab, but is important to keep in mind when doing your own development.
+
+---
+
+### Task 4 - Monitor GPU Performance
+
+**Description:** Azure Container Apps provides tools to monitor your GPU utilization and performance. In this task, you'll use the console to access your running container and see information about your GPU and test connectivity to external sources.
+
+1. **Access the container console via Azure Portal:**
+   
+   - Navigate to the Azure Portal: `https://portal.azure.com`
+   - Go to your container app: **Resource Groups** → **my-gpu-demo-group** → **my-gpu-demo-app**
+   - In the left menu, under **Monitoring**, select **Console**
+   - For the console, choose **App Container**
+   - If not displayed by default:
+       - Select your active **replica** from the dropdown
+       - Select your **container** (**my-gpu-demo-container**)
+       - Click **Reconnect** if needed
+
+2. **Connect to the container shell:**
+   
+   - In the **Choose startup command** dialog, select `/bin/bash`
+   - Click **Connect**
+   - Wait for the shell prompt to appear. This is the Container App Console, which is useful for troubleshooting your application inside a container.
+   - Enter the following command to check NVIDIA GPU status including utilization, memory usage, and running processes: `nvidia-smi`
+   - Now enter, `nslookup ollama.com`. Since we're in the container app console, you should see nslookup fail as the container doesn't have access to network access tools.
+
+3. **Check out the Debug Console**
+   We'll now explore the debug console which helps you troubleshoot when you can't connect to the target container and comes pre-installed with a number of tools such as network connectivity tools. These can be used to verify connectivity to your AI model endpoints if you run into issues pulling models or calling APIs from within your container app.
+   - At the top of the page, choose **Debug** and repeat steps 1 and 2 from Task 4.
+   - Now enter, `nslookup ollama.com` – verifies DNS name resolution to Ollama.
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+- **"Workload profile not found" or GPU option not available**
+   - **Cause:** GPU workload profiles are not available in your selected region, or GPU quota hasn't been approved.
+   - **Solution:**
+      1. Ensure you're using West US 3.
+
+- **Very slow first image generation (2+ minutes)**
+   - **Cause:** This is expected as the app hasn't been optimized for cold start yet. The GPU, drivers, and AI model all need to initialize.
+   - **Solution:**
+      1. For production, enable minimum replicas (see Task 3).
+      2. Implement artifact streaming to reduce image pull time.
+      3. Consider using warm-up requests after deployment.
+      4. Wait 60-90 seconds for the first generation—subsequent ones will be much faster.
+
+- **"Failed to pull image" error**
+   - **Cause:** Network connectivity issues or incorrect image name.
+   - **Solution:**
+      1. Verify the image name is exactly: `mcr.microsoft.com/k8se/gpu-quickstart:latest`.
+      2. In the Portal, go to your container app → **Revision management** → select your revision.
+      3. Check **Logs** in the Monitoring section for detailed error messages.
+      4. If the issue persists, try recreating the container app with the correct image details.
+
+- **Application is running but images aren't generating**
+   - **Cause:** The GPU may not be properly allocated or the model failed to load.
+   - **Solution:**
+      1. Connect to the console (Task 3) and run `nvidia-smi` to verify GPU is accessible.
+      2. In the Portal, navigate to **Monitoring** → **Log stream** to check application logs for errors.
+      3. Check **Metrics** to see if replicas are running.
+      4. Try restarting: Go to **Revision management** → click the **...** menu → **Restart**.
+
+- **"Cannot access container console" error**
+   - **Cause:** The replica may not be running or console access is temporarily unavailable.
+   - **Solution:**
+      1. In the Portal, go to **Revision management** and verify the revision status is "Running".
+      2. Check that at least one replica is active under **Replicas**.
+      3. Wait a moment and try refreshing the Console page.
+      4. If the issue persists, try the **Log stream** option instead under **Monitoring**.
+
+---
+
+## Key Takeaways
+
+✅ **Serverless GPUs** in Azure Container Apps provide on-demand GPU compute without infrastructure management
+
+✅ **Cold start optimization** is critical for production applications - use minimum replicas and artifact streaming
+
+✅ **Cost management** is important - GPU resources are expensive, so scale to zero when not in use
+
+✅ **nvidia-smi** is your primary tool for monitoring GPU utilization and troubleshooting
+
+✅ **Multiple GPU regions** are available - choose based on latency and availability requirements
+
+---
+
+## Additional Resources
+
+- [Azure Container Apps GPU Documentation](https://learn.microsoft.com/en-us/azure/container-apps/gpu-serverless-overview)
+- [Improve GPU Cold Start Performance](https://learn.microsoft.com/en-us/azure/container-apps/gpu-serverless-overview#improve-gpu-cold-start)
+- [Azure Container Apps Pricing](https://azure.microsoft.com/en-us/pricing/details/container-apps/)
+- [NVIDIA GPU Monitoring Guide](https://developer.nvidia.com/nvidia-system-management-interface)
+- [Azure Container Apps Best Practices](https://learn.microsoft.com/en-us/azure/container-apps/best-practices)
+
+---
